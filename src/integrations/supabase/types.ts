@@ -53,6 +53,39 @@ export type Database = {
         }
         Relationships: []
       }
+      posts: {
+        Row: {
+          body: string
+          created_at: string
+          event_date: string | null
+          id: string
+          kind: Database["public"]["Enums"]["post_kind"]
+          location: string | null
+          published: boolean
+          title: string
+        }
+        Insert: {
+          body?: string
+          created_at?: string
+          event_date?: string | null
+          id?: string
+          kind?: Database["public"]["Enums"]["post_kind"]
+          location?: string | null
+          published?: boolean
+          title: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          event_date?: string | null
+          id?: string
+          kind?: Database["public"]["Enums"]["post_kind"]
+          location?: string | null
+          published?: boolean
+          title?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -89,6 +122,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin"
+      post_kind: "event" | "news"
       study_level: "L1" | "L2" | "L3" | "M1" | "M2"
     }
     CompositeTypes: {
@@ -218,6 +252,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin"],
+      post_kind: ["event", "news"],
       study_level: ["L1", "L2", "L3", "M1", "M2"],
     },
   },
