@@ -380,7 +380,167 @@ function AdminPage() {
             </table>
           </div>
         </div>
+
+        <div className="clay-lg mt-8 rounded-3xl bg-card p-8 md:p-10">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-extrabold tracking-wide text-brand uppercase">
+                Home page content
+              </p>
+              <h2 className="font-display text-2xl font-bold">Events &amp; news</h2>
+            </div>
+            <button
+              onClick={() => setPostDraft({ ...blankPost })}
+              className="clay-sm rounded-2xl bg-brand px-5 py-2.5 text-sm font-bold text-primary-foreground"
+            >
+              New post
+            </button>
+          </div>
+
+          {postDraft && (
+            <form
+              className="clay-sm mt-6 grid gap-4 rounded-2xl bg-background p-5 sm:grid-cols-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                savePost.mutate(postDraft);
+              }}
+            >
+              <div className="sm:col-span-2">
+                <label className="text-xs font-extrabold text-muted-foreground uppercase">Title</label>
+                <input
+                  required
+                  className={fieldClass}
+                  value={postDraft.title}
+                  onChange={(e) => setPostDraft({ ...postDraft, title: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-muted-foreground uppercase">Type</label>
+                <select
+                  className={fieldClass}
+                  value={postDraft.kind}
+                  onChange={(e) =>
+                    setPostDraft({ ...postDraft, kind: e.target.value as Post["kind"] })
+                  }
+                >
+                  <option value="event">event</option>
+                  <option value="news">news</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                  Date &amp; time
+                </label>
+                <input
+                  type="datetime-local"
+                  className={fieldClass}
+                  value={postDraft.event_date ? postDraft.event_date.slice(0, 16) : ""}
+                  onChange={(e) =>
+                    setPostDraft({ ...postDraft, event_date: e.target.value || null })
+                  }
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                  Place
+                </label>
+                <input
+                  className={fieldClass}
+                  placeholder="Amphi 3, Faculty of Electrical Engineering"
+                  value={postDraft.location ?? ""}
+                  onChange={(e) => setPostDraft({ ...postDraft, location: e.target.value })}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                  Details
+                </label>
+                <textarea
+                  rows={4}
+                  className={fieldClass}
+                  value={postDraft.body}
+                  onChange={(e) => setPostDraft({ ...postDraft, body: e.target.value })}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={postDraft.published}
+                  onChange={(e) => setPostDraft({ ...postDraft, published: e.target.checked })}
+                />
+                Visible on the home page
+              </label>
+              <div className="flex gap-3 sm:col-span-2">
+                <button
+                  type="submit"
+                  disabled={savePost.isPending}
+                  className="clay-md rounded-2xl bg-brand px-6 py-3 font-bold text-primary-foreground disabled:opacity-70"
+                >
+                  Save post
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPostDraft(null)}
+                  className="clay-sm rounded-2xl bg-card px-6 py-3 font-bold"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            {posts.length === 0 && (
+              <p className="font-semibold text-muted-foreground">
+                No events or news yet — create your first post.
+              </p>
+            )}
+            {posts.map((post) => (
+              <div key={post.id} className="clay-sm rounded-2xl bg-background p-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-brand/15 px-3 py-1 text-[11px] font-extrabold text-brand uppercase">
+                    {post.kind}
+                  </span>
+                  {!post.published && (
+                    <span className="rounded-full bg-blossom/20 px-3 py-1 text-[11px] font-extrabold text-blossom-foreground uppercase">
+                      hidden
+                    </span>
+                  )}
+                  {post.event_date && (
+                    <span className="text-xs font-bold text-muted-foreground">
+                      {new Date(post.event_date).toLocaleString("en-GB")}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-3 font-display text-lg font-bold">{post.title}</p>
+                {post.location && (
+                  <p className="text-xs font-bold text-brand">📍 {post.location}</p>
+                )}
+                <p className="mt-2 line-clamp-3 text-sm font-semibold text-muted-foreground">
+                  {post.body}
+                </p>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    onClick={() => setPostDraft(post)}
+                    className="clay-sm rounded-lg bg-mint/25 px-3 py-1.5 text-xs font-bold text-mint-foreground"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm(`Delete "${post.title}"?`)) removePost.mutate(post.id);
+                    }}
+                    className="clay-sm rounded-lg bg-blossom/20 px-3 py-1.5 text-xs font-bold text-blossom-foreground"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
+
 
       {editing && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 px-5 py-10">
