@@ -6,10 +6,10 @@ import { supabase } from "@/integrations/supabase/client";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "Admin sign in — Wavez" },
-      { name: "description", content: "Sign in to manage Wavez club members." },
-      { property: "og:title", content: "Admin sign in — Wavez" },
-      { property: "og:description", content: "Club officers sign in to the Wavez member console." },
+      { title: "Admin sign in — WaveZ" },
+      { name: "description", content: "Sign in to manage WaveZ club members." },
+      { property: "og:title", content: "Admin sign in — WaveZ" },
+      { property: "og:description", content: "Club officers sign in to the WaveZ member console." },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -65,7 +65,7 @@ function AuthPage() {
         <div className="clay-sm animate-floaty absolute -top-8 -right-6 size-24 rounded-full bg-lemon" />
         <div className="relative">
           <Link to="/" className="text-xs font-extrabold tracking-wide text-brand-deep uppercase">
-            ← Back to Wavez
+            ← Back to WaveZ
           </Link>
           <h1 className="mt-4 font-display text-3xl font-bold">
             {mode === "signin" ? "Admin sign in" : "Create admin account"}
