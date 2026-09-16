@@ -31,6 +31,28 @@ type Member = {
   created_at: string;
 };
 
+type Post = {
+  id: string;
+  kind: "event" | "news";
+  title: string;
+  body: string;
+  location: string | null;
+  event_date: string | null;
+  published: boolean;
+  created_at: string;
+};
+
+const blankPost: Post = {
+  id: "",
+  kind: "event",
+  title: "",
+  body: "",
+  location: "",
+  event_date: null,
+  published: true,
+  created_at: "",
+};
+
 const levelTint: Record<Level, string> = {
   L1: "bg-lilac/30 text-lilac-foreground",
   L2: "bg-blossom/25 text-blossom-foreground",
@@ -51,6 +73,7 @@ function AdminPage() {
   const [department, setDepartment] = useState("all");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Member | null>(null);
+  const [postDraft, setPostDraft] = useState<Post | null>(null);
 
   const { data: isAdmin, isLoading: roleLoading } = useQuery({
     queryKey: ["is-admin"],
@@ -113,6 +136,57 @@ function AdminPage() {
       queryClient.invalidateQueries({ queryKey: ["members"] });
     },
     onError: () => toast.error("Could not save changes"),
+  });
+
+  const { data: posts = [] } = useQuery({
+    queryKey: ["admin-posts"],
+    enabled: isAdmin === true,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("posts")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as Post[];
+    },
+  });
+
+  const savePost = useMutation({
+    mutationFn: async (post: Post) => {
+      const payload = {
+        kind: post.kind,
+        title: post.title.trim(),
+        body: post.body.trim(),
+        location: post.location?.trim() ? post.location.trim() : null,
+        event_date: post.event_date ? new Date(post.event_date).toISOString() : null,
+        published: post.published,
+      };
+      if (!payload.title) throw new Error("title required");
+      const { error } = post.id
+        ? await supabase.from("posts").update(payload).eq("id", post.id)
+        : await supabase.from("posts").insert(payload);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Post saved");
+      setPostDraft(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-posts"] });
+      queryClient.invalidateQueries({ queryKey: ["public-posts"] });
+    },
+    onError: () => toast.error("Could not save this post"),
+  });
+
+  const removePost = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("posts").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Post deleted");
+      queryClient.invalidateQueries({ queryKey: ["admin-posts"] });
+      queryClient.invalidateQueries({ queryKey: ["public-posts"] });
+    },
+    onError: () => toast.error("Could not delete this post"),
   });
 
   const filtered = useMemo(() => {
