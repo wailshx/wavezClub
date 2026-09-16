@@ -1,29 +1,29 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { DEPARTMENTS, LEVELS, SPECIALITIES, memberSchema } from "@/lib/club";
 import logo from "@/assets/wavez-logo.png";
+import { CircuitCard } from "@/components/circuit-card";
+import { BoltDivider, HeroPulse, PcbBackground } from "@/components/circuit-board";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "WaveZ Scientific Club — Learn. Build. Innovate." },
+      { title: "Wavez Club — Learn. Build. Innovate." },
       {
         name: "description",
         content:
-          "WaveZ Scientific Club at the Faculty of Electrical Engineering, Djillali Liabès University of Sidi Bel Abbès: electronics, robotics, AI, embedded systems and IoT.",
+          "Wavez Club at the Faculty of Electrical Engineering, Djillali Liabès University of Sidi Bel Abbès: electronics, robotics, AI, embedded systems and IoT.",
       },
-      { property: "og:title", content: "WaveZ Scientific Club — Learn. Build. Innovate." },
+      { property: "og:title", content: "Wavez Club — Learn. Build. Innovate." },
       {
         property: "og:description",
         content:
           "A student-led scientific community turning engineering theory into real projects, workshops and competitions.",
       },
-      { property: "og:url", content: "https://elecite-club-hub.lovable.app/" },
     ],
-    links: [{ rel: "canonical", href: "https://elecite-club-hub.lovable.app/" }],
   }),
   component: Index,
 });
@@ -99,21 +99,22 @@ function Index() {
       <header className="mx-auto max-w-6xl px-5 pt-6">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="clay-sm grid size-12 shrink-0 place-items-center rounded-2xl bg-card p-1.5">
-              <img src={logo} alt="WaveZ Scientific Club logo" width={48} height={48} />
-            </div>
+            <img src={logo} alt="Wavez Club logo" width={64} height={64} className="shrink-0" />
             <div className="min-w-0">
               <p className="truncate font-display text-lg leading-none font-bold text-brand-deep">
-                WaveZ
+                Wavez
               </p>
               <p className="truncate text-[11px] font-semibold tracking-wide text-muted-foreground">
-                Scientific Club
+                Club
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <nav className="hidden items-center gap-1 text-sm font-bold md:flex">
-              <a href="#about" className="rounded-xl px-4 py-2 text-muted-foreground hover:text-brand">
+              <a
+                href="#about"
+                className="rounded-xl px-4 py-2 text-muted-foreground hover:text-brand"
+              >
                 About
               </a>
               <a
@@ -122,30 +123,29 @@ function Index() {
               >
                 Activities
               </a>
-              <a href="#news" className="rounded-xl px-4 py-2 text-muted-foreground hover:text-brand">
+              <a
+                href="#news"
+                className="rounded-xl px-4 py-2 text-muted-foreground hover:text-brand"
+              >
                 Events
               </a>
-              <a href="#join" className="rounded-xl px-4 py-2 text-muted-foreground hover:text-brand">
+              <a
+                href="#join"
+                className="rounded-xl px-4 py-2 text-muted-foreground hover:text-brand"
+              >
                 Join
               </a>
             </nav>
-            <Link
-              to="/admin"
-              className="clay-sm shrink-0 rounded-2xl bg-card px-5 py-2.5 text-sm font-bold text-brand-deep"
-            >
-              Admin
-            </Link>
           </div>
         </div>
       </header>
 
       <section className="mx-auto max-w-6xl px-5 pt-10 pb-16">
         <div className="clay-lg relative overflow-hidden rounded-4xl bg-card/80 p-8 md:p-14">
-          <div className="clay-md animate-floaty absolute -top-10 -right-6 size-40 rounded-full bg-mint/40" />
-          <div className="clay-md animate-floaty-tilt absolute bottom-8 -left-8 size-28 rounded-full bg-brand/25" />
-          <div className="clay-sm animate-floaty absolute top-24 left-1/2 size-16 rounded-full bg-lemon/50" />
+          <PcbBackground />
+          <HeroPulse />
 
-          <div className="animate-rise relative max-w-2xl">
+          <div className="animate-rise relative z-10 max-w-2xl">
             <span className="inline-flex items-center gap-2 rounded-full bg-mint/25 px-4 py-1.5 text-xs font-extrabold text-mint-foreground">
               Faculty of Electrical Engineering · Djillali Liabès University, Sidi Bel Abbès
             </span>
@@ -153,9 +153,9 @@ function Index() {
               Learn. Build. Innovate.
             </h1>
             <p className="mt-5 text-lg font-semibold text-muted-foreground">
-              WaveZ Scientific Club is a student-led scientific and technological community bringing
-              together students passionate about electronics, electrical engineering, automation,
-              artificial intelligence, robotics, embedded systems and IoT.
+              Wavez Club is a student-led scientific and technological community bringing together
+              students passionate about electronics, electrical engineering, automation, artificial
+              intelligence, robotics, embedded systems and IoT.
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
               <a
@@ -175,8 +175,10 @@ function Index() {
         </div>
       </section>
 
+      <BoltDivider />
+
       <section id="about" className="mx-auto max-w-6xl px-5 pb-16">
-        <h2 className="font-display text-3xl font-bold">About WaveZ</h2>
+        <h2 className="font-display text-3xl font-bold">About Wavez Club</h2>
         <p className="mt-3 max-w-3xl font-semibold text-muted-foreground">
           We create an environment where students explore technology beyond the classroom, develop
           practical engineering skills, collaborate on projects and transform ideas into working
@@ -205,23 +207,25 @@ function Index() {
               text: "Mentorship, competitions and collaboration with industry and research partners.",
             },
           ].map((card) => (
-            <div key={card.title} className="clay-sm rounded-3xl bg-card p-7">
+            <CircuitCard key={card.title} className="clay-sm rounded-3xl bg-card p-7">
               <div
-                className={`clay-sm grid size-12 place-items-center rounded-2xl text-2xl ${card.tint}`}
+                className={`circuit-glow clay-sm grid size-12 place-items-center rounded-2xl text-2xl ${card.tint}`}
               >
                 {card.icon}
               </div>
               <h3 className="mt-4 font-display text-xl font-bold">{card.title}</h3>
               <p className="mt-2 text-sm font-semibold text-muted-foreground">{card.text}</p>
-            </div>
+            </CircuitCard>
           ))}
         </div>
       </section>
 
+      <BoltDivider />
+
       <section id="activities" className="mx-auto max-w-6xl px-5 pb-16">
         <h2 className="font-display text-3xl font-bold">What we do all year</h2>
         <div className="mt-6 grid gap-6 md:grid-cols-3">
-          <div className="clay-md rounded-3xl bg-brand p-7 text-primary-foreground">
+          <CircuitCard className="clay-md rounded-3xl bg-brand p-7 text-primary-foreground">
             <p className="text-4xl">🏆</p>
             <h3 className="mt-3 font-display text-xl font-bold text-primary-foreground">
               Competitions
@@ -229,23 +233,26 @@ function Index() {
             <p className="mt-2 text-sm font-semibold text-primary-foreground/80">
               Hackathons, robotics challenges and build-offs where teams ship a working prototype.
             </p>
-          </div>
-          <div className="clay-md rounded-3xl bg-card p-7">
+          </CircuitCard>
+          <CircuitCard className="clay-md rounded-3xl bg-card p-7">
             <p className="text-4xl">🛠️</p>
-            <h3 className="mt-3 font-display text-xl font-bold">Workshops & training</h3>
+            <h3 className="mt-3 font-display text-xl font-bold">Workshops &amp; training</h3>
             <p className="mt-2 text-sm font-semibold text-muted-foreground">
               Practical sessions on embedded systems, IoT, PCB design, Python and machine learning.
             </p>
-          </div>
-          <div className="clay-md rounded-3xl bg-card p-7">
+          </CircuitCard>
+          <CircuitCard className="clay-md rounded-3xl bg-card p-7">
             <p className="text-4xl">🎓</p>
-            <h3 className="mt-3 font-display text-xl font-bold">Projects & mentorship</h3>
+            <h3 className="mt-3 font-display text-xl font-bold">Projects &amp; mentorship</h3>
             <p className="mt-2 text-sm font-semibold text-muted-foreground">
-              L1–L3 students guided by master's students and teachers toward real technical projects.
+              L1–L3 students guided by master's students and teachers toward real technical
+              projects.
             </p>
-          </div>
+          </CircuitCard>
         </div>
       </section>
+
+      <BoltDivider />
 
       <section id="news" className="mx-auto max-w-6xl px-5 pb-16">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -303,7 +310,7 @@ function Index() {
         <div className="clay-lg rounded-3xl bg-brand p-8 md:p-12">
           <div className="max-w-2xl">
             <h2 className="font-display text-3xl font-bold text-primary-foreground md:text-4xl">
-              Join WaveZ
+              Join Wavez Club
             </h2>
             <p className="mt-2 font-semibold text-primary-foreground/80">
               Fill this in and our team will reach out before the next session.
@@ -426,7 +433,7 @@ function Index() {
       </section>
 
       <footer className="mx-auto max-w-6xl px-5 pb-10 text-center text-xs font-semibold text-muted-foreground">
-        <p className="font-display text-sm font-bold text-brand-deep">WAVEZ SCIENTIFIC CLUB</p>
+        <p className="font-display text-sm font-bold text-brand-deep">WAVEZ CLUB</p>
         <p className="mt-1">Learn. Build. Innovate.</p>
         <p className="mt-2">
           Faculté de Génie Électrique · Université Djillali Liabès de Sidi Bel Abbès

@@ -1,10 +1,71 @@
-<!-- LOVABLE:BEGIN -->
-> [!IMPORTANT]
-> This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
-> published git history — force pushing, or rebasing/amending/squashing commits
-> that are already pushed — as it rewrites history on Lovable's side and the
-> user will likely lose their project history.
->
-> Commits you push to the connected branch sync back to Lovable and show up in
-> the editor, so keep the branch in a working state.
-<!-- LOVABLE:END -->
+# AGENTS.md
+
+## Setup
+
+- Repo uses `bun.lock`. Don't commit a generated `package-lock.json`.
+- Dev server: `npm run dev`. Route files regenerate `src/routeTree.gen.ts` automatically.
+
+## Verification
+
+Every change must pass, 0 errors:
+
+```sh
+npx tsc --noEmit
+npm run lint
+npm run build
+```
+
+## Conventions
+
+- Never edit generated files: `src/integrations/supabase/**` and `src/routeTree.gen.ts`.
+- The admin API lives in `src/lib/admin-api.ts` and `src/lib/admin-gestion-api.ts` (server-only functions). Client imports that match `**/server/**` are blocked by the import-protection plugin — keep it under `src/lib/`.
+- Server-only env access (`src/lib/*.server.ts`) must be imported via `await import()` from server function handlers — never at module scope in client-compiled modules.
+- Keep the working branch green; commits sync to the connected production Git remote.
+
+## Environment Variables
+
+### Committed in `.env` (public / non-secret)
+
+| Variable | Notes |
+|---|---|
+| `SUPABASE_URL` / `VITE_SUPABASE_URL` | Lovable Cloud Supabase prod URL |
+| `SUPABASE_PUBLISHABLE_KEY` / `VITE_SUPABASE_PUBLISHABLE_KEY` | Anon/publishable key |
+| `OWNER_EMAIL` / `VITE_OWNER_EMAIL` | `wailkr68@gmail.com` — trusted club owner |
+
+### Must be set in Lovable production env (NOT committed)
+
+| Variable | Purpose |
+|---|---|
+| `SUPABASE_SERVICE_ROLE_KEY` | Used by `client.server.ts` (bypasses RLS for admin operations) |
+| `ADMIN_REQUEST_SIGNING_SECRET` | HMAC signing key for accept/cancel tokens (falls back to insecure dev default locally) |
+
+## Admin Request Flow (Phase 1)
+
+### Migration `drizzle/migrations/0002_admin_requests_and_roles.sql`
+
+Auto-applies on Lovable deploy. Creates:
+- `admin_role` enum (president … vice_hr_leader)
+- `admin_requests` table with RLS: public INSERT, owner SELECT/UPDATE via service role
+- `rate_limit_admin_requests` trigger: 1 request per email per 60 s
+- Adds `admin_role` column to `user_roles`
+- Drops the old `bootstrap_first_admin` trigger (replaced by app-level owner auto-approve)
+
+### Server functions (`src/lib/admin-gestion-api.ts`)
+
+| Export | Auth | Purpose |
+|---|---|---|
+| `submitAdminRequestAction` | Public (anon client) | Insert pending request + stub email with accept/cancel token links |
+| `ensureOwnerAdmin` | Auth middleware | On every `_authenticated` entry, if signed-in email matches `OWNER_EMAIL`, insert the `president` role if missing |
+| `decideAdminRequestAction` | Token-authenticated | Accept: create user_roles + Supabase invite. Cancel: mark rejected + stub rejection email |
+
+### Token flow
+
+Email links: `{origin}/gestion?token=<signed>`  
+Token payload: `requestId:accept|cancel:expiresAtMs` signed with HMAC-SHA256  
+Single-use enforced by DB status check; expires after 7 days.
+
+### /gestion page modes
+
+- **signin** (default): owner + approved admins sign in.
+- **request** (toggled via "Apply for a club role"): collects first/last name, department, email, phone. Calls `submitAdminRequestAction`. Shows persistent confirmation card on success.
+- **owner-setup**: owner-only account creation (signs up only if email matches `OWNER_EMAIL`, else steers to request form).

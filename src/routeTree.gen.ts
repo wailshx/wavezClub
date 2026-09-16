@@ -11,8 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
-import { Route as AuthRouteImport } from './routes/auth'
-import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as GestionIndexRouteImport } from './routes/gestion/index'
+import { Route as AuthenticatedGestionAdminRouteImport } from './routes/_authenticated/gestion.admin'
+import { Route as GestionReviewTokenRouteImport } from './routes/gestion/review.$token'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -23,46 +24,62 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthRoute = AuthRouteImport.update({
-  id: '/auth',
-  path: '/auth',
+const GestionIndexRoute = GestionIndexRouteImport.update({
+  id: '/gestion/',
+  path: '/gestion/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
-  getParentRoute: () => AuthenticatedRouteRoute,
+const AuthenticatedGestionAdminRoute =
+  AuthenticatedGestionAdminRouteImport.update({
+    id: '/gestion/admin',
+    path: '/gestion/admin',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const GestionReviewTokenRoute = GestionReviewTokenRouteImport.update({
+  id: '/gestion/review/$token',
+  path: '/gestion/review/$token',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/auth': typeof AuthRoute
-  '/admin': typeof AuthenticatedAdminRoute
+  '/gestion/': typeof GestionIndexRoute
+  '/gestion/admin': typeof AuthenticatedGestionAdminRoute
+  '/gestion/review/$token': typeof GestionReviewTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/auth': typeof AuthRoute
-  '/admin': typeof AuthenticatedAdminRoute
+  '/gestion': typeof GestionIndexRoute
+  '/gestion/admin': typeof AuthenticatedGestionAdminRoute
+  '/gestion/review/$token': typeof GestionReviewTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
-  '/auth': typeof AuthRoute
-  '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/gestion/': typeof GestionIndexRoute
+  '/_authenticated/gestion/admin': typeof AuthenticatedGestionAdminRoute
+  '/gestion/review/$token': typeof GestionReviewTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/admin'
+  fullPaths: '/' | '/gestion/' | '/gestion/admin' | '/gestion/review/$token'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/admin'
-  id: '__root__' | '/' | '/_authenticated' | '/auth' | '/_authenticated/admin'
+  to: '/' | '/gestion' | '/gestion/admin' | '/gestion/review/$token'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authenticated'
+    | '/gestion/'
+    | '/_authenticated/gestion/admin'
+    | '/gestion/review/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
-  AuthRoute: typeof AuthRoute
+  GestionIndexRoute: typeof GestionIndexRoute
+  GestionReviewTokenRoute: typeof GestionReviewTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -81,29 +98,36 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/auth': {
-      id: '/auth'
-      path: '/auth'
-      fullPath: '/auth'
-      preLoaderRoute: typeof AuthRouteImport
+    '/gestion/': {
+      id: '/gestion/'
+      path: '/gestion'
+      fullPath: '/gestion/'
+      preLoaderRoute: typeof GestionIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/admin': {
-      id: '/_authenticated/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AuthenticatedAdminRouteImport
+    '/_authenticated/gestion/admin': {
+      id: '/_authenticated/gestion/admin'
+      path: '/gestion/admin'
+      fullPath: '/gestion/admin'
+      preLoaderRoute: typeof AuthenticatedGestionAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/gestion/review/$token': {
+      id: '/gestion/review/$token'
+      path: '/gestion/review/$token'
+      fullPath: '/gestion/review/$token'
+      preLoaderRoute: typeof GestionReviewTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
-  AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedGestionAdminRoute: typeof AuthenticatedGestionAdminRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
-  AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedGestionAdminRoute: AuthenticatedGestionAdminRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
@@ -112,7 +136,8 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
-  AuthRoute: AuthRoute,
+  GestionIndexRoute: GestionIndexRoute,
+  GestionReviewTokenRoute: GestionReviewTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

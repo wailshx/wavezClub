@@ -1,25 +1,41 @@
-# ElecEng Club Hub
+# Wavez Club
 
-i wanna build website for my scentifice club in university of electrical eng elctronic student 
-contain main and admin are separt and can control with apis so in main just page of registration new membwer and discrape our club must be dunamic and animation main web page in admin full controle of member of clun id name age speciality lavel in faculty fisrt year second (L1 L2 L3 M1 M2) and use your logic on it and copy from how other club build theire website
+Official website for the Wavez Club — a student-led scientific club at the Faculty of Electrical Engineering, Djillali Liabès University of Sidi Bel Abbès.
 
-This project was built with [Lovable](https://lovable.dev).
+The site has two parts:
 
-## Build with Lovable
+- **Public homepage** — club description, upcoming events and news, and a membership registration form.
+- **Admin panel** — full control over club members (id, name, age, specialty, department, level L1–L2–L3–M1–M2) and the posts shown on the homepage. Every action goes through server APIs, and only users with the `admin` role can access it. The first account created becomes the admin.
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/6f29e4b0-d03b-421a-afa9-215923f159a2).
+## Stack
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+- [TanStack Start](https://tanstack.com/start) + React 19 + TanStack Router
+- [Supabase](https://supabase.com) (auth, Postgres, RLS)
+- Tailwind CSS v4
+- Deployed via the Vite/Nitro/Cloudflare pipeline
 
 ## Development
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+Requires Node.js. Install with nvm, then:
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
 npm i
 npm run dev
 ```
+
+Environment: copy the keys from the Supabase project into your `.env` (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `VITE_*`).
+
+## Commands
+
+```sh
+npm run dev        # dev server
+npm run build      # production build
+npm run lint       # eslint
+npm run format     # prettier
+```
+
+## Notes for contributors
+
+- Do not edit generated files under `src/integrations/supabase/**` or `src/routeTree.gen.ts`.
+- The admin API lives in `src/lib/admin-api.ts`. It runs on the server only — the import-protection plugin blocks any client import matching `**/server/**`.
+- Verify changes with `npx tsc --noEmit`, `npm run lint`, and `npm run build` (0 errors).
