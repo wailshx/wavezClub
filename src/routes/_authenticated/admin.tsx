@@ -8,10 +8,10 @@ import { DEPARTMENTS, LEVELS, SPECIALITIES, initials, type Level } from "@/lib/c
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
     meta: [
-      { title: "Member console — Wavez" },
-      { name: "description", content: "Manage Wavez club members, levels and departments." },
-      { property: "og:title", content: "Member console — Wavez" },
-      { property: "og:description", content: "Wavez club officers manage member records." },
+      { title: "Member console — WaveZ" },
+      { name: "description", content: "Manage WaveZ club members, levels and departments." },
+      { property: "og:title", content: "Member console — WaveZ" },
+      { property: "og:description", content: "WaveZ club officers manage member records." },
       { name: "robots", content: "noindex" },
     ],
   }),
