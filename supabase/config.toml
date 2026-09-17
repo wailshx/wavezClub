@@ -1,1 +1,11 @@
-project_id = "jdyjjwdwwbvqodqsxenn"
+# Supabase CLI config — must match the live Lovable Cloud project in `.env`.
+# Migrations are authored in drizzle/migrations/ and mirrored here for CLI/Dashboard use.
+# See AGENTS.md § Database migrations.
+
+project_id = "pnqdtozfqzvybewuabwc"
+
+[db]
+major_version = 15
+
+[db.migrations]
+# Default: supabase/migrations/*.sql (mirrors drizzle/migrations/)

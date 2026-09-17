@@ -23,7 +23,11 @@ npm i
 npm run dev
 ```
 
-Environment: copy the keys from the Supabase project into your `.env` (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `VITE_*`).
+Environment: copy the keys from the Supabase project into your `.env` (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `VITE_*`). For local admin server functions, also set `SUPABASE_SERVICE_ROLE_KEY` (never commit it).
+
+### Database migrations
+
+SQL migrations live in `drizzle/migrations/` and are mirrored to `supabase/migrations/` for Supabase CLI tooling. The live project is `pnqdtozfqzvybewuabwc` (see `supabase/config.toml`). Apply pending migrations via the Supabase Dashboard SQL Editor in journal order until `supabase link` is configured — see `AGENTS.md` for details.
 
 ## Commands
 

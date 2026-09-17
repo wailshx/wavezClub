@@ -5,6 +5,22 @@
 - Repo uses `bun.lock`. Don't commit a generated `package-lock.json`.
 - Dev server: `npm run dev`. Route files regenerate `src/routeTree.gen.ts` automatically.
 
+## Database migrations
+
+**Source of truth:** `drizzle/migrations/` (journal: `drizzle/migrations/meta/_journal.json`).
+
+**Supabase CLI mirror:** the same SQL files are copied to `supabase/migrations/` so `supabase db push` / diff tooling can target the correct project (`supabase/config.toml` → `pnqdtozfqzvybewuabwc`, matching `.env`).
+
+Until the Supabase CLI is linked to this project (`supabase link --project-ref pnqdtozfqzvybewuabwc`), apply new migrations **manually** via the [Supabase Dashboard SQL Editor](https://supabase.com/dashboard/project/pnqdtozfqzvybewuabwc/sql/new) — paste each file in journal order (`0000` … `0004`). After editing a migration in `drizzle/migrations/`, re-copy it to `supabase/migrations/` before applying.
+
+| Migration | Purpose |
+|---|---|
+| `0000_create_members_and_roles.sql` | `members`, `user_roles`, RLS, bootstrap trigger |
+| `0001_create_posts.sql` | `posts` table + RLS |
+| `0002_admin_requests_and_roles.sql` | `admin_role` enum, `admin_requests`, rate-limit trigger |
+| `0003_member_blocking.sql` | `members.blocked_until` |
+| `0004_admin_email_drafts.sql` | `admin_email_drafts` table + RLS |
+
 ## Verification
 
 Every change must pass, 0 errors:
