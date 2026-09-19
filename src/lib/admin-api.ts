@@ -3,23 +3,32 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
+import { MAX_LEADER_DESCRIPTION } from "@/lib/leaders";
+import { isValidLinkedinUrl, TEAM_CATEGORIES, type TeamCategory } from "@/lib/team";
+import { requireSection } from "@/lib/admin-admins-api";
 
 export type MemberLevel = "L1" | "L2" | "L3" | "M1" | "M2";
 
 export type AdminMember = {
   id: string;
   full_name: string;
-  age: number;
+  age: number | null;
   email: string;
   phone: string;
-  speciality: string;
+  speciality: string | null;
   level: MemberLevel;
   department: string;
   status: string;
   admin_role: string | null;
   blocked_until: string | null;
   created_at: string;
+  /** Object path in the private `identity-documents` bucket (nullable — optional uploads). */
+  school_certificate_url: string | null;
+  /** Object path in the private `identity-documents` bucket (nullable — optional uploads). */
+  identity_card_url: string | null;
 };
+
+export type MemberDocumentKey = "school_certificate" | "identity_card";
 
 export type AdminPost = {
   id: string;
@@ -38,6 +47,27 @@ export type AdminEmailDraft = {
   body: string;
   recipient_ids: string[];
   created_by: string;
+  created_at: string;
+};
+
+export type AdminLeader = {
+  id: string;
+  name: string;
+  position: string;
+  description: string;
+  image_url: string;
+  display_order: number;
+  created_at: string;
+};
+
+export type AdminTeamMember = {
+  id: string;
+  name: string;
+  role_title: string;
+  category: TeamCategory;
+  avatar_url: string;
+  linkedin_url: string | null;
+  display_order: number;
   created_at: string;
 };
 
@@ -75,6 +105,12 @@ type LooseDb = { from: (table: string) => LooseTable };
 const emailDraftTable = (supabase: SupabaseClient<Database>) =>
   (supabase as unknown as LooseDb).from("admin_email_drafts");
 
+const leadersTable = (supabase: SupabaseClient<Database>) =>
+  (supabase as unknown as LooseDb).from("leaders");
+
+const teamTable = (supabase: SupabaseClient<Database>) =>
+  (supabase as unknown as LooseDb).from("team_members");
+
 async function requireAdmin(context: AdminContext) {
   const { data } = await context.supabase.rpc("has_role", {
     _user_id: context.userId,
@@ -97,7 +133,7 @@ export const getAdminStatus = createServerFn({ method: "GET" })
 export const listMembers = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { supabase } = await requireAdmin(context);
+    const { supabase } = await requireSection(context, "members");
     const { data, error } = await supabase
       .from("members")
       .select("*")
@@ -129,9 +165,8 @@ export const updateMember = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((member: AdminMember) => member)
   .handler(async ({ context, data: member }) => {
-    const { supabase } = await requireAdmin(context);
-    const { error } = await supabase
-      .from("members")
+    const { supabase } = await requireSection(context, "members");
+    const { error } = await (supabase.from("members") as unknown as LooseTable)
       .update({
         full_name: member.full_name,
         age: member.age,
@@ -151,7 +186,7 @@ export const deleteMember = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((id: string) => id)
   .handler(async ({ context, data: id }) => {
-    const { supabase } = await requireAdmin(context);
+    const { supabase } = await requireSection(context, "members");
     const { error } = await supabase.from("members").delete().eq("id", id);
     if (error) throw new Error(error.message);
     return true;
@@ -161,7 +196,7 @@ export const blockMember = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((data: { id: string; until: string }) => data)
   .handler(async ({ context, data: { id, until } }) => {
-    const { supabase } = await requireAdmin(context);
+    const { supabase } = await requireSection(context, "members");
     if (!until || Number.isNaN(new Date(until).getTime())) {
       throw new Error("Invalid block duration");
     }
@@ -176,7 +211,7 @@ export const unblockMember = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((id: string) => id)
   .handler(async ({ context, data: id }) => {
-    const { supabase } = await requireAdmin(context);
+    const { supabase } = await requireSection(context, "members");
     const { error } = await (supabase.from("members") as unknown as MemberBlockUpdate)
       .update({ blocked_until: null })
       .eq("id", id);
@@ -184,10 +219,38 @@ export const unblockMember = createServerFn({ method: "POST" })
     return true;
   });
 
+/**
+ * Build a short-lived signed URL for one document stored on a member record so
+ * the admin can open it in a new tab. Mirrors the registration document link
+ * flow — the file stays in the private `identity-documents` bucket and only a
+ * 10-minute link is exposed.
+ */
+export const getMemberDocumentUrl = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: { memberId: string; document: MemberDocumentKey }) => input)
+  .handler(async ({ context, data: { memberId, document } }) => {
+    const { supabase } = await requireSection(context, "members");
+
+    const column =
+      document === "school_certificate" ? "school_certificate_url" : "identity_card_url";
+    const { data, error } = await supabase.from("members").select(column).eq("id", memberId);
+    if (error) throw new Error(error.message);
+    const path = ((data ?? [])[0] as Record<string, unknown> | undefined)?.[column] as
+      string | null | undefined;
+    if (!path) throw new Error("This member has no document on file.");
+
+    const { error: signedError, data: signedData } = await supabase.storage
+      .from("identity-documents")
+      .createSignedUrl(path, 600);
+    if (signedError) throw new Error(signedError.message);
+    if (!signedData) throw new Error("Could not create a signed link for this document.");
+    return signedData.signedUrl;
+  });
+
 export const listPosts = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { supabase } = await requireAdmin(context);
+    const { supabase } = await requireSection(context, "events");
     const { data, error } = await supabase
       .from("posts")
       .select("*")
@@ -200,7 +263,7 @@ export const savePost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((post: AdminPost) => post)
   .handler(async ({ context, data: post }) => {
-    const { supabase } = await requireAdmin(context);
+    const { supabase } = await requireSection(context, "events");
     const payload = {
       kind: post.kind,
       title: post.title.trim(),
@@ -221,7 +284,7 @@ export const deletePost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((id: string) => id)
   .handler(async ({ context, data: id }) => {
-    const { supabase } = await requireAdmin(context);
+    const { supabase } = await requireSection(context, "events");
     const { error } = await supabase.from("posts").delete().eq("id", id);
     if (error) throw new Error(error.message);
     return true;
@@ -275,10 +338,154 @@ export const sendEmail = createServerFn({ method: "POST" })
   .handler(async ({ context, data: { recipients, subject, body } }) => {
     await requireAdmin(context);
 
-    console.log("[EMAIL-STUB]", {
-      to: recipients,
-      subject: subject.trim(),
-      body: body.trim(),
-    });
-    return { sent: recipients.length };
+    // Each recipient gets the same copy; failures are logged server-side.
+    // Sent as the club (CLUB_EMAIL) since this is club↔member communication.
+    const { sendClubEmail } = await import("@/lib/resend.server");
+    let sent = 0;
+    for (const to of recipients) {
+      const result = await sendClubEmail({ to, subject: subject.trim(), text: body.trim() });
+      if (result.ok) sent += 1;
+    }
+    return { sent };
+  });
+
+export const listLeaders = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase } = await requireSection(context, "leaders");
+    const { data, error } = await leadersTable(supabase).select("*");
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as unknown as AdminLeader[]).sort(
+      (a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name),
+    );
+  });
+
+export const saveLeader = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((leader: AdminLeader) => leader)
+  .handler(async ({ context, data: leader }) => {
+    const { supabase } = await requireSection(context, "leaders");
+    const name = leader.name.trim();
+    const position = leader.position.trim();
+    const description = (leader.description ?? "").trim().slice(0, MAX_LEADER_DESCRIPTION);
+    const image_url = leader.image_url.trim();
+    if (!name) throw new Error("Name is required");
+    if (!position) throw new Error("Position is required");
+    if (!image_url) throw new Error("Photo is required");
+    const payload = {
+      name,
+      position,
+      description,
+      image_url,
+      display_order: Number.isFinite(Number(leader.display_order))
+        ? Math.trunc(Number(leader.display_order))
+        : 0,
+    };
+    const { error } = leader.id
+      ? await leadersTable(supabase).update(payload).eq("id", leader.id)
+      : await leadersTable(supabase).insert(payload);
+    if (error) throw new Error(error.message);
+    return true;
+  });
+
+export const deleteLeader = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((id: string) => id)
+  .handler(async ({ context, data: id }) => {
+    const { supabase } = await requireSection(context, "leaders");
+    const { error } = await leadersTable(supabase).delete().eq("id", id);
+    if (error) throw new Error(error.message);
+    return true;
+  });
+
+export const saveLeaderOrder = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((rows: { id: string; display_order: number }[]) => rows)
+  .handler(async ({ context, data: rows }) => {
+    const { supabase } = await requireSection(context, "leaders");
+    for (const row of rows) {
+      const { error } = await leadersTable(supabase)
+        .update({
+          display_order: Number.isFinite(Number(row.display_order))
+            ? Math.trunc(Number(row.display_order))
+            : 0,
+        })
+        .eq("id", row.id);
+      if (error) throw new Error(error.message);
+    }
+    return true;
+  });
+
+export const listTeam = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase } = await requireSection(context, "team");
+    const { data, error } = await teamTable(supabase).select("*");
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as unknown as AdminTeamMember[]).sort(
+      (a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name),
+    );
+  });
+
+export const saveTeamMember = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((member: AdminTeamMember) => member)
+  .handler(async ({ context, data: member }) => {
+    const { supabase } = await requireSection(context, "team");
+    const name = member.name.trim();
+    const role_title = member.role_title.trim();
+    const avatar_url = member.avatar_url.trim();
+    const linkedin_url = (member.linkedin_url ?? "").trim() || null;
+    if (!name) throw new Error("Name is required");
+    if (!role_title) throw new Error("Role title is required");
+    if (!avatar_url) throw new Error("Photo is required");
+    if (!TEAM_CATEGORIES.some((entry) => entry.value === member.category)) {
+      throw new Error("Invalid category");
+    }
+    if (linkedin_url && !isValidLinkedinUrl(linkedin_url)) {
+      throw new Error("LinkedIn must be a valid linkedin.com URL");
+    }
+    const payload = {
+      name,
+      role_title,
+      category: member.category,
+      avatar_url,
+      linkedin_url,
+      display_order: Number.isFinite(Number(member.display_order))
+        ? Math.trunc(Number(member.display_order))
+        : 0,
+    };
+    const { error } = member.id
+      ? await teamTable(supabase).update(payload).eq("id", member.id)
+      : await teamTable(supabase).insert(payload);
+    if (error) throw new Error(error.message);
+    return true;
+  });
+
+export const deleteTeamMember = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((id: string) => id)
+  .handler(async ({ context, data: id }) => {
+    const { supabase } = await requireSection(context, "team");
+    const { error } = await teamTable(supabase).delete().eq("id", id);
+    if (error) throw new Error(error.message);
+    return true;
+  });
+
+export const saveTeamOrder = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((rows: { id: string; display_order: number }[]) => rows)
+  .handler(async ({ context, data: rows }) => {
+    const { supabase } = await requireSection(context, "team");
+    for (const row of rows) {
+      const { error } = await teamTable(supabase)
+        .update({
+          display_order: Number.isFinite(Number(row.display_order))
+            ? Math.trunc(Number(row.display_order))
+            : 0,
+        })
+        .eq("id", row.id);
+      if (error) throw new Error(error.message);
+    }
+    return true;
   });

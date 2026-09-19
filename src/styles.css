@@ -117,66 +117,107 @@ circle.animate-junction-pop {
   transform-origin: center;
 }
 
-/* Hero current pulse: one glowing dot travelling a fixed path, with a fading tail */
-.pulse-dot {
+/* Hero aurora orbs — soft blue/teal gradient orbs drifting behind the glass panel */
+.hero-orbs {
   position: absolute;
-  left: 0;
-  top: 0;
-  width: 10px;
-  height: 10px;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.hero-orb {
+  position: absolute;
   border-radius: 9999px;
-  offset-anchor: 50% 50%;
-  offset-path: path("M36 164 L36 96 L128 96 L128 56 L220 56");
-  animation: pulse-travel 3.4s linear infinite;
-  background: radial-gradient(circle at 50% 50%, #ffffff 0 30%, #9beeff 55%, #06b6d4 100%);
+  opacity: 0.65;
+  filter: blur(30px);
+  will-change: transform;
+}
+
+.hero-orb--a {
+  top: -10rem;
+  left: -8rem;
+  width: 38rem;
+  height: 38rem;
+  background: radial-gradient(circle at 35% 35%, rgba(37, 99, 235, 0.5), rgba(37, 99, 235, 0) 66%);
+  animation: hero-drift-a 26s ease-in-out infinite;
+}
+
+.hero-orb--b {
+  top: 12%;
+  right: -9rem;
+  width: 36rem;
+  height: 36rem;
+  background: radial-gradient(circle at 60% 40%, rgba(6, 182, 212, 0.45), rgba(6, 182, 212, 0) 66%);
+  animation: hero-drift-b 32s ease-in-out infinite;
+}
+
+.hero-orb--c {
+  bottom: -13rem;
+  left: 24%;
+  width: 30rem;
+  height: 30rem;
+  background: radial-gradient(circle at 50% 55%, rgba(56, 189, 248, 0.4), rgba(56, 189, 248, 0) 66%);
+  animation: hero-drift-c 24s ease-in-out infinite;
+}
+
+/* Light "ice glass" panel — the public theme's glass language (matched by .leader-card) */
+.hero-glass {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.75));
+  border: 1px solid rgba(255, 255, 255, 0.6);
   box-shadow:
-    0 0 8px 2px rgba(37, 99, 235, 0.55),
-    0 0 22px 8px rgba(6, 182, 212, 0.35);
+    0 24px 60px -28px rgba(15, 23, 42, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
 }
-@keyframes pulse-travel {
-  from {
-    offset-distance: 0%;
+
+/* Public campaign card — matches .hero-glass but brighter, lifts on hover */
+.campaign-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.84));
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow:
+    0 18px 44px -24px rgba(15, 23, 42, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+  transition:
+    transform 220ms ease,
+    box-shadow 220ms ease;
+}
+.campaign-card:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 30px 60px -28px rgba(15, 23, 42, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+/* Slow, small drift — ambient, not distracting. Durations differ so they never sync. */
+@keyframes hero-drift-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
   }
-  to {
-    offset-distance: 100%;
+  50% {
+    transform: translate3d(28px, 20px, 0);
   }
 }
-.pulse-trail-head {
-  stroke-dasharray: 6 100;
-  animation: pulse-head 3.4s linear infinite;
-}
-@keyframes pulse-head {
-  from {
-    stroke-dashoffset: -6;
+@keyframes hero-drift-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
   }
-  to {
-    stroke-dashoffset: 94;
+  50% {
+    transform: translate3d(-32px, 16px, 0);
   }
 }
-.pulse-trail-mid {
-  stroke-dasharray: 16 100;
-  opacity: 0.5;
-  animation: pulse-mid 3.4s linear infinite;
-}
-@keyframes pulse-mid {
-  from {
-    stroke-dashoffset: -16;
+@keyframes hero-drift-c {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
   }
-  to {
-    stroke-dashoffset: 84;
-  }
-}
-.pulse-trail-faint {
-  stroke-dasharray: 30 100;
-  opacity: 0.2;
-  animation: pulse-faint 3.4s linear infinite;
-}
-@keyframes pulse-faint {
-  from {
-    stroke-dashoffset: -30;
-  }
-  to {
-    stroke-dashoffset: 70;
+  50% {
+    transform: translate3d(20px, -24px, 0);
   }
 }
 
@@ -334,10 +375,250 @@ circle.animate-junction-pop {
     transition-duration: 0.01ms !important;
   }
 
-  .pulse-dot,
-  .pulse-trail-head,
-  .pulse-trail-mid,
-  .pulse-trail-faint {
-    animation: none !important;
+  .hero-orb {
+    animation: none;
+  }
+}
+
+/*
+ * ============================================================
+ * Admin theme — "Quantum Blue and Ice Glass" (scoped to /gestion)
+ * All variables override the public oklch tokens ONLY inside an
+ * element carrying .admin-theme, so the public site stays untouched.
+ * ============================================================
+ */
+
+body:has(.admin-theme) {
+  background-color: #060b18;
+}
+
+.admin-theme {
+  /* deep near-black navy base */
+  --background: #060b18;
+  --foreground: #e6ecff;
+
+  --card: #0a1226;
+  --card-foreground: #e6ecff;
+  --popover: #0a1226;
+  --popover-foreground: #e6ecff;
+
+  --primary: #2e6bff;
+  --primary-foreground: #ffffff;
+
+  --secondary: rgba(255, 255, 255, 0.08);
+  --secondary-foreground: #e6ecff;
+
+  --muted: rgba(255, 255, 255, 0.06);
+  --muted-foreground: #94a3c8;
+
+  --accent: #2e6bff;
+  --accent-foreground: #0a1226;
+
+  --destructive: #f43f5e;
+  --destructive-foreground: #ffffff;
+
+  --border: rgba(255, 255, 255, 0.12);
+  --input: rgba(255, 255, 255, 0.12);
+  --ring: #2e6bff;
+
+  /* Wavez brand re-mapped to Quantum Blue + semantic accents */
+  --brand: #2e6bff;
+  --brand-deep: #6fa0ff;
+  --mint: #34d399;
+  --mint-foreground: #6ee7b7;
+  --lemon: #f59e0b;
+  --lemon-foreground: #fcd34d;
+  --lilac: #818cf8;
+  --lilac-foreground: #c7d2fe;
+  --blossom: #f43f5e;
+  --blossom-foreground: #fda4af;
+
+  /* soft blue-tinted glow instead of the 3D clay drop shadow */
+  --shadow-clay-sm:
+    0 10px 30px -14px rgba(46, 107, 255, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-clay-md:
+    0 16px 40px -18px rgba(46, 107, 255, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --shadow-clay-lg:
+    0 24px 60px -24px rgba(46, 107, 255, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  color-scheme: dark;
+  min-height: 100vh;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+.admin-theme h1,
+.admin-theme h2,
+.admin-theme h3 {
+  color: var(--foreground);
+}
+
+.admin-theme option {
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+/* fixed aurora orbs that sit behind the glass panels */
+.admin-theme::before,
+.admin-theme::after {
+  content: "";
+  position: fixed;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 9999px;
+  filter: blur(100px);
+}
+.admin-theme::before {
+  top: -140px;
+  right: -120px;
+  width: 480px;
+  height: 480px;
+  background: radial-gradient(circle, rgba(46, 107, 255, 0.5), transparent 65%);
+}
+.admin-theme::after {
+  bottom: -160px;
+  left: -140px;
+  width: 520px;
+  height: 520px;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.3), transparent 65%);
+}
+
+/* ice-glass panels */
+.admin-glass {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow:
+    0 18px 50px -24px rgba(46, 107, 255, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+/* more opaque glass for modals / overlays so content stays readable */
+.admin-glass-strong {
+  background: rgba(13, 20, 43, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 24px 70px -30px rgba(2, 6, 23, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+.admin-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  border-radius: 0.9rem;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--muted-foreground);
+  border: 1px solid transparent;
+  text-align: left;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.admin-nav-item:hover {
+  color: var(--foreground);
+  background: rgba(255, 255, 255, 0.06);
+}
+.admin-nav-item-active,
+.admin-nav-item-active:hover {
+  background: rgba(46, 107, 255, 0.16);
+  color: #ffffff;
+  border-color: rgba(46, 107, 255, 0.4);
+  box-shadow:
+    inset 3px 0 0 #2e6bff,
+    0 6px 18px -8px rgba(46, 107, 255, 0.6);
+}
+
+/*
+ * ============================================================
+ * Public site — "Meet our team" leaders carousel
+ * Frosted-glass cards (light theme), seamless auto-scroll marquee.
+ * ============================================================
+ */
+
+.leaders-marquee {
+  position: relative;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+}
+
+.leaders-rail {
+  display: flex;
+  width: max-content;
+  animation: leaders-scroll 48s linear infinite;
+  will-change: transform;
+}
+
+.leaders-marquee:hover .leaders-rail,
+.leaders-marquee:focus-within .leaders-rail {
+  animation-play-state: paused;
+}
+
+/* Two identical groups inside the rail make the -50% loop seamless. */
+.leaders-group {
+  display: flex;
+  align-items: stretch;
+  gap: 1.5rem;
+  padding-right: 1.5rem;
+}
+
+.leader-card {
+  display: flex;
+  flex-direction: column;
+  width: 17rem;
+  max-width: 80vw;
+  flex-shrink: 0;
+  border-radius: 1.5rem;
+  padding: 0.9rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.6));
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+  box-shadow:
+    0 14px 34px -18px rgba(15, 23, 42, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+}
+
+.leader-card:hover {
+  transform: translateY(-6px) scale(1.02);
+  border-color: rgba(37, 99, 235, 0.55);
+  box-shadow:
+    0 30px 60px -24px rgba(37, 99, 235, 0.45),
+    0 0 30px -6px rgba(37, 99, 235, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+/* Reduced-motion / fallback: static wrapped row, no auto-scroll. */
+.leaders-static {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+@keyframes leaders-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .leaders-rail {
+    animation: none;
   }
 }

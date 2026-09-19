@@ -87,9 +87,9 @@ function ReviewPage() {
     result !== null || request?.status === "approved" || request?.status === "rejected";
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-5 py-16">
-      <div className="clay-lg relative w-full max-w-md overflow-hidden rounded-3xl bg-card p-8">
-        <div className="clay-sm animate-floaty absolute -top-8 -right-6 size-24 rounded-full bg-lemon" />
+    <div className="admin-theme flex min-h-screen items-center justify-center px-5 py-16">
+      <div className="admin-glass relative w-full max-w-md overflow-hidden rounded-3xl p-8">
+        <div className="absolute -top-10 -right-8 size-32 rounded-full bg-[#2e6bff]/40 blur-2xl" />
         <div className="relative">
           <Link to="/" className="text-xs font-extrabold tracking-wide text-brand-deep uppercase">
             ← Back to Wavez Club
@@ -101,42 +101,42 @@ function ReviewPage() {
           )}
 
           {fetchState.status === "invalid" && (
-            <div className="clay-sm mt-6 rounded-2xl bg-red-100 p-5 text-sm font-semibold text-red-700">
+            <div className="mt-6 rounded-2xl border border-[#f43f5e]/25 bg-[#f43f5e]/15 p-5 text-sm font-semibold text-[#fda4af]">
               {fetchState.message}
             </div>
           )}
 
           {request && !decided && (
             <>
-              <p className="mt-2 text-sm font-semibold text-muted-foreground">
+              <p className="mt-2 text-sm font-semibold text-[#94a3c8]">
                 A new officer application is waiting for your decision.
               </p>
 
-              <div className="clay-sm mt-6 rounded-2xl bg-background p-5">
+              <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-5">
                 <dl className="space-y-3 text-sm">
                   <div>
                     <dt className={inputLabel}>Applicant</dt>
-                    <dd className="mt-0.5 font-bold text-foreground">
+                    <dd className="mt-0.5 font-bold text-white">
                       {request.first_name} {request.last_name}
                     </dd>
                   </div>
                   <div>
                     <dt className={inputLabel}>Department / role</dt>
-                    <dd className="mt-0.5 font-bold text-foreground">
+                    <dd className="mt-0.5 font-bold text-white">
                       {DEPARTMENT_LABELS[request.department]}
                     </dd>
                   </div>
                   <div>
                     <dt className={inputLabel}>Email</dt>
-                    <dd className="mt-0.5 font-bold text-foreground">{request.email}</dd>
+                    <dd className="mt-0.5 font-bold text-white">{request.email}</dd>
                   </div>
                   <div>
                     <dt className={inputLabel}>Phone</dt>
-                    <dd className="mt-0.5 font-bold text-foreground">{request.phone}</dd>
+                    <dd className="mt-0.5 font-bold text-white">{request.phone}</dd>
                   </div>
                   <div>
                     <dt className={inputLabel}>Submitted</dt>
-                    <dd className="mt-0.5 font-bold text-foreground">
+                    <dd className="mt-0.5 font-bold text-white">
                       {formatDate(request.created_at)}
                     </dd>
                   </div>
@@ -147,33 +147,35 @@ function ReviewPage() {
                 <div className="mt-6 grid grid-cols-2 gap-3">
                   <button
                     onClick={() => setConfirming("accept")}
-                    className="clay-md rounded-2xl bg-brand px-6 py-3.5 font-bold text-primary-foreground"
+                    className="clay-md rounded-2xl bg-[#2e6bff] px-6 py-3.5 font-bold text-white shadow-[0_16px_40px_-16px_rgba(46,107,255,0.7)]"
                   >
                     Accept
                   </button>
                   <button
                     onClick={() => setConfirming("cancel")}
-                    className="clay-sm rounded-2xl bg-red-100 px-6 py-3.5 font-bold text-red-700"
+                    className="rounded-2xl border border-[#f43f5e]/25 bg-[#f43f5e]/15 px-6 py-3.5 font-bold text-[#fda4af]"
                   >
                     Cancel
                   </button>
                 </div>
               ) : (
-                <div className="clay-sm mt-6 rounded-2xl bg-background p-5 text-center">
-                  <p className="text-sm font-bold text-foreground">
+                <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
+                  <p className="text-sm font-bold text-white">
                     {confirming === "accept"
                       ? "Approve this applicant and send them an invite?"
                       : "Reject this application?"}
                   </p>
-                  <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                  <p className="mt-1 text-xs font-semibold text-[#94a3c8]">
                     This action cannot be undone.
                   </p>
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <button
                       disabled={busy}
                       onClick={() => void handleDecide(confirming)}
-                      className={`clay-md rounded-2xl px-6 py-3 font-bold text-primary-foreground disabled:opacity-60 ${
-                        confirming === "accept" ? "bg-brand" : "bg-red-600"
+                      className={`clay-md rounded-2xl px-6 py-3 font-bold text-white disabled:opacity-60 ${
+                        confirming === "accept"
+                          ? "bg-[#2e6bff] shadow-[0_16px_40px_-16px_rgba(46,107,255,0.7)]"
+                          : "bg-[#f43f5e]"
                       }`}
                     >
                       {busy ? "Confirming…" : "Yes, I'm sure"}
@@ -181,7 +183,7 @@ function ReviewPage() {
                     <button
                       disabled={busy}
                       onClick={() => setConfirming(null)}
-                      className="clay-sm rounded-2xl bg-card px-6 py-3 font-bold text-brand-deep disabled:opacity-60"
+                      className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#6fa0ff] disabled:opacity-60"
                     >
                       Go back
                     </button>
@@ -193,11 +195,11 @@ function ReviewPage() {
 
           {request && decided && (
             <div
-              className={`clay-sm mt-6 rounded-2xl p-5 text-sm font-semibold ${
+              className={`mt-6 rounded-2xl border p-5 text-sm font-semibold ${
                 (result?.action ?? request.status) === "cancel" ||
                 (result?.action ?? request.status) === "rejected"
-                  ? "bg-red-100 text-red-700"
-                  : "bg-mint/30 text-mint-foreground"
+                  ? "border-[#f43f5e]/25 bg-[#f43f5e]/15 text-[#fda4af]"
+                  : "border-[#34d399]/25 bg-[#34d399]/15 text-[#6ee7b7]"
               }`}
             >
               {(result?.action ?? request.status) === "accept" ||

@@ -189,10 +189,6 @@ function getBaseUrl(): string {
   return host ? `${proto}://${host}` : "http://localhost:8081";
 }
 
-function logStubEmail(to: string, subject: string, body: string): void {
-  console.log(`\n[EMAIL-STUB] To: ${to}\nSubject: ${subject}\n---\n${body}\n---\n`);
-}
-
 async function authAdmin(supabaseAdmin: SupabaseClient): Promise<AuthAdminApi> {
   return supabaseAdmin.auth.admin;
 }
@@ -243,11 +239,13 @@ export const submitAdminRequestAction = createServerFn({ method: "POST" })
 
     if (newRow) {
       const reviewUrl = `${origin}/gestion/review/${await signReviewToken(getSigningSecret(), newRow.id)}`;
-      logStubEmail(
-        getOwnerEmail(),
-        "New admin request — Wavez Club",
-        `There's a new admin request from ${data.firstName} ${data.lastName} — click to review: ${reviewUrl}`,
-      );
+      // Sending failure is logged server-side but must not fail the request insert.
+      const { sendResendEmail } = await import("@/lib/resend.server");
+      await sendResendEmail({
+        to: getOwnerEmail(),
+        subject: "New admin request — Wavez Club",
+        text: `There's a new admin request from ${data.firstName} ${data.lastName} — click to review: ${reviewUrl}`,
+      });
     }
 
     return { ok: true as const };
@@ -388,10 +386,14 @@ export const decideAdminRequestAction = createServerFn({ method: "POST" })
       .update({ status: "rejected", decided_at: new Date().toISOString() })
       .eq("id", decoded.requestId);
 
-    logStubEmail(
-      request.email,
-      "Wavez Club — admin request update",
-      [
+    // Sending failure is logged server-side but the decision itself is final.
+    // From an official club mailbox (CLUB_EMAIL) — the club talking to a would-be
+    // leader, not an owner-to-owner alert.
+    const { sendClubEmail } = await import("@/lib/resend.server");
+    await sendClubEmail({
+      to: request.email,
+      subject: "Wavez Club — admin request update",
+      text: [
         `Hi ${request.first_name},`,
         "",
         "Thank you for your interest in joining the Wavez Club officer team.",
@@ -401,7 +403,7 @@ export const decideAdminRequestAction = createServerFn({ method: "POST" })
         "",
         "— Wavez Club",
       ].join("\n"),
-    );
+    });
 
     return { ok: true as const, action: "cancel" as const, email: request.email };
   });

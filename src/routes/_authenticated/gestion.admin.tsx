@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   PieChart,
   Pie,
@@ -17,7 +17,64 @@ import {
 } from "recharts";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import {
+  ArrowDown,
+  ArrowUp,
+  Award,
+  Ban,
+  CalendarDays,
+  ChevronLeft,
+  ClipboardList,
+  Download,
+  ExternalLink,
+  FilePlus2,
+  ImagePlus,
+  LayoutDashboard,
+  LogOut,
+  Mail,
+  Menu,
+  Paperclip,
+  Pencil,
+  Save,
+  Search,
+  Send,
+  Settings2,
+  Shield,
+  Trash2,
+  User,
+  UserCheck,
+  Users,
+  Users2,
+  Waves,
+  X,
+  Eye,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip as ShadTooltip,
+  TooltipContent as ShadTooltipContent,
+  TooltipProvider as ShadTooltipProvider,
+  TooltipTrigger as ShadTooltipTrigger,
+} from "@/components/ui/tooltip";
+import logo from "@/assets/wavez-logo.png";
 import { DEPARTMENTS, LEVELS, SPECIALITIES, initials, type Level } from "@/lib/club";
 import {
   getAdminStatus,
@@ -33,7 +90,33 @@ import {
   saveEmailDraft as saveEmailDraftApi,
   deleteEmailDraft,
   sendEmail as sendEmailApi,
+  listLeaders,
+  saveLeader as saveLeaderApi,
+  deleteLeader,
+  saveLeaderOrder,
+  type AdminLeader,
+  listTeam,
+  saveTeamMember as saveTeamMemberApi,
+  deleteTeamMember as deleteTeamMemberApi,
+  saveTeamOrder as saveTeamOrderApi,
+  getMemberDocumentUrl,
+  type AdminTeamMember,
+  type MemberDocumentKey,
 } from "@/lib/admin-api";
+import { MAX_LEADER_DESCRIPTION } from "@/lib/leaders";
+import { isValidLinkedinUrl, TEAM_CATEGORIES, teamCategoryLabel } from "@/lib/team";
+import { AdminRegistrations } from "@/components/admin-registrations";
+import {
+  ADMIN_SECTIONS,
+  adminSectionLabel,
+  getAdminSession,
+  listAdmins,
+  setAdminDisabled,
+  setAdminSectionAllowed,
+  updateAdminProfile,
+  type AdminRow,
+  type AdminSection,
+} from "@/lib/admin-admins-api";
 
 export const Route = createFileRoute("/_authenticated/gestion/admin")({
   head: () => ({
@@ -51,16 +134,18 @@ export const Route = createFileRoute("/_authenticated/gestion/admin")({
 type Member = {
   id: string;
   full_name: string;
-  age: number;
+  age: number | null;
   email: string;
   phone: string;
-  speciality: string;
+  speciality: string | null;
   level: Level;
   department: string;
   status: string;
   admin_role: string | null;
   blocked_until: string | null;
   created_at: string;
+  school_certificate_url: string | null;
+  identity_card_url: string | null;
 };
 
 const BLOCK_PRESETS = {
@@ -90,13 +175,66 @@ const ROLE_LABELS: Record<string, string> = {
   vice_hr_leader: "Vice HR Leader",
 };
 
+const CHART_COLORS = ["#2e6bff", "#38bdf8", "#818cf8", "#a78bfa", "#f59e0b"];
+const chartTooltipStyle = {
+  backgroundColor: "rgba(10, 18, 38, 0.95)",
+  border: "1px solid rgba(255, 255, 255, 0.14)",
+  borderRadius: 12,
+  color: "#e6ecff",
+  fontSize: 12,
+  fontWeight: 600,
+} satisfies object;
+const axisTick = { fill: "#94a3c8", fontSize: 10 };
+const gridStroke = "rgba(255, 255, 255, 0.08)";
+
 function leadershipRank(role: string | null) {
   const idx = LEADERSHIP_ORDER.indexOf(role ?? "");
   return idx === -1 ? LEADERSHIP_ORDER.length : idx;
 }
 
+function prettyRole(role: string | null | undefined) {
+  if (!role) return "Admin";
+  return role
+    .split("_")
+    .map((word) => (word ? `${word[0]}${word.slice(1)}` : word))
+    .join(" ");
+}
+
+function avatarFallback(name: string | null, email: string | null) {
+  const base = name?.trim() || email?.trim() || "?";
+  return base
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase();
+}
+
+const navItems = [
+  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { key: "members", label: "Members", icon: Users },
+  { key: "events", label: "Events", icon: CalendarDays },
+  { key: "registrations", label: "Registrations", icon: ClipboardList },
+  { key: "leaders", label: "Leaders", icon: Award },
+  { key: "team", label: "Team", icon: Users2 },
+  { key: "admins", label: "Admins", icon: Shield },
+] as const;
+
 function isBlocked(member: Pick<Member, "blocked_until">) {
   return !!member.blocked_until && new Date(member.blocked_until).getTime() > Date.now();
+}
+
+function NoAccess({ label }: { label: string }) {
+  return (
+    <div className="admin-glass mt-8 rounded-3xl p-8 text-center">
+      <Shield className="mx-auto size-8 text-[#94a3c8]" />
+      <h2 className="mt-3 font-display text-xl font-bold text-white">No access</h2>
+      <p className="mx-auto mt-2 max-w-md font-semibold text-[#94a3c8]">
+        You don't have permission to view {label}. Ask the club owner to grant you access in the
+        Admins page.
+      </p>
+    </div>
+  );
 }
 
 type Post = {
@@ -121,12 +259,39 @@ const blankPost: Post = {
   created_at: "",
 };
 
+const blankLeader: AdminLeader = {
+  id: "",
+  name: "",
+  position: "",
+  description: "",
+  image_url: "",
+  display_order: 1,
+  created_at: "",
+};
+
+const blankTeam: AdminTeamMember = {
+  id: "",
+  name: "",
+  role_title: "",
+  category: "professor",
+  avatar_url: "",
+  linkedin_url: "",
+  display_order: 1,
+  created_at: "",
+};
+
 const levelTint: Record<Level, string> = {
   L1: "bg-lilac/30 text-lilac-foreground",
   L2: "bg-blossom/25 text-blossom-foreground",
   L3: "bg-lemon/40 text-lemon-foreground",
   M1: "bg-mint/30 text-mint-foreground",
   M2: "bg-brand/20 text-brand-deep",
+};
+
+const teamCategoryTint: Record<AdminTeamMember["category"], string> = {
+  student: "bg-[#34d399]/20 text-[#6ee7b7]",
+  professor: "bg-[#2e6bff]/20 text-[#6fa0ff]",
+  administration: "bg-[#f59e0b]/20 text-[#fcd34d]",
 };
 
 const controlClass =
@@ -141,8 +306,12 @@ function AdminPage() {
   const [department, setDepartment] = useState("all");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Member | null>(null);
+  const [manageId, setManageId] = useState<string | null>(null);
+  const [removeConfirm, setRemoveConfirm] = useState<Member | null>(null);
   const [postDraft, setPostDraft] = useState<Post | null>(null);
-  const [tab, setTab] = useState<"dashboard" | "members" | "events" | "email">("dashboard");
+  const [tab, setTab] = useState<
+    "dashboard" | "members" | "events" | "email" | "leaders" | "team" | "registrations" | "admins"
+  >("dashboard");
   const [blockTarget, setBlockTarget] = useState<Member | null>(null);
   const [blockOption, setBlockOption] = useState<BlockOption>("1w");
   const [customUntil, setCustomUntil] = useState("");
@@ -153,40 +322,67 @@ function AdminPage() {
   const [emailTemplate, setEmailTemplate] = useState("custom");
   const [attachmentName, setAttachmentName] = useState("");
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [leaderDraft, setLeaderDraft] = useState<AdminLeader | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [teamDraft, setTeamDraft] = useState<AdminTeamMember | null>(null);
+  const [teamUploading, setTeamUploading] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileName, setProfileName] = useState("");
+  const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
+  const [profileUploading, setProfileUploading] = useState(false);
+  const [disableTarget, setDisableTarget] = useState<AdminRow | null>(null);
 
   const { data: isAdmin, isLoading: roleLoading } = useQuery({
     queryKey: ["is-admin"],
     queryFn: () => getAdminStatus(),
   });
 
+  const { data: session } = useQuery({
+    queryKey: ["admin-session"],
+    queryFn: () => getAdminSession(),
+  });
+
+  const canAccess = (section: AdminSection): boolean =>
+    session?.isOwner === true || (session?.sections.includes(section) ?? false);
+  const isOwner = session?.isOwner ?? false;
+
   const { data: members = [], isLoading } = useQuery({
     queryKey: ["members"],
-    enabled: isAdmin === true,
+    enabled: isAdmin === true && canAccess("members"),
     queryFn: () => listMembers(),
   });
 
+  function patchMembersCache(update: (prev: Member[]) => Member[]) {
+    queryClient.setQueryData<Member[]>(["members"], (prev) => (prev ? update(prev) : prev));
+  }
+
   const removeMember = useMutation({
     mutationFn: (id: string) => deleteMember({ data: id }),
-    onSuccess: () => {
+    onSuccess: (_result, id) => {
       toast.success("Member removed");
-      queryClient.invalidateQueries({ queryKey: ["members"] });
+      if (manageId === id) setManageId(null);
+      setRemoveConfirm(null);
+      patchMembersCache((prev) => prev.filter((member) => member.id !== id));
     },
     onError: () => toast.error("Could not remove this member"),
   });
 
   const saveMember = useMutation({
     mutationFn: (member: Member) => updateMember({ data: member }),
-    onSuccess: () => {
+    onSuccess: (_result, member) => {
       toast.success("Member updated");
       setEditing(null);
-      queryClient.invalidateQueries({ queryKey: ["members"] });
+      patchMembersCache((prev) =>
+        prev.map((item) => (item.id === member.id ? { ...item, ...member } : item)),
+      );
     },
     onError: () => toast.error("Could not save changes"),
   });
 
   const { data: posts = [] } = useQuery({
     queryKey: ["admin-posts"],
-    enabled: isAdmin === true,
+    enabled: isAdmin === true && canAccess("events"),
     queryFn: () => listPosts(),
   });
 
@@ -213,20 +409,26 @@ function AdminPage() {
 
   const blockMember = useMutation({
     mutationFn: (data: { id: string; until: string }) => blockMemberApi({ data }),
-    onSuccess: () => {
+    onSuccess: (_result, { id, until }) => {
       toast.success("Member blocked");
       setBlockTarget(null);
-      queryClient.invalidateQueries({ queryKey: ["members"] });
+      patchMembersCache((prev) =>
+        prev.map((member) =>
+          member.id === id ? { ...member, blocked_until: new Date(until).toISOString() } : member,
+        ),
+      );
     },
     onError: () => toast.error("Could not block this member"),
   });
 
   const unblockMember = useMutation({
     mutationFn: (id: string) => unblockMemberApi({ data: id }),
-    onSuccess: () => {
+    onSuccess: (_result, id) => {
       toast.success("Member unblocked");
       setBlockTarget(null);
-      queryClient.invalidateQueries({ queryKey: ["members"] });
+      patchMembersCache((prev) =>
+        prev.map((member) => (member.id === id ? { ...member, blocked_until: null } : member)),
+      );
     },
     onError: () => toast.error("Could not unblock this member"),
   });
@@ -276,6 +478,296 @@ function AdminPage() {
     onError: () => toast.error("Could not send this email"),
   });
 
+  const { data: leaders = [] } = useQuery({
+    queryKey: ["admin-leaders"],
+    enabled: isAdmin === true && canAccess("leaders"),
+    queryFn: () => listLeaders(),
+  });
+
+  const saveLeader = useMutation({
+    mutationFn: (leader: AdminLeader) => saveLeaderApi({ data: leader }),
+    onSuccess: () => {
+      toast.success("Leader saved");
+      setLeaderDraft(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-leaders"] });
+      queryClient.invalidateQueries({ queryKey: ["public-leaders"] });
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Could not save this leader"),
+  });
+
+  const removeLeader = useMutation({
+    mutationFn: (id: string) => deleteLeader({ data: id }),
+    onSuccess: () => {
+      toast.success("Leader removed");
+      queryClient.invalidateQueries({ queryKey: ["admin-leaders"] });
+      queryClient.invalidateQueries({ queryKey: ["public-leaders"] });
+    },
+    onError: () => toast.error("Could not remove this leader"),
+  });
+
+  const reorderLeaders = useMutation({
+    mutationFn: (rows: { id: string; display_order: number }[]) => saveLeaderOrder({ data: rows }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-leaders"] });
+    },
+    onError: () => toast.error("Could not reorder leaders"),
+  });
+
+  function moveLeader(index: number, direction: -1 | 1) {
+    const next = [...leaders];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    const item = next[index];
+    if (!item) return;
+    next.splice(index, 1);
+    next.splice(target, 0, item);
+    reorderLeaders.mutate(next.map((leader, i) => ({ id: leader.id, display_order: i + 1 })));
+  }
+
+  async function handleLeaderPhoto(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !leaderDraft) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      toast.error("Please use a PNG, JPG or WebP image");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Photo must be under 5 MB");
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const path = `leaders/${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.storage.from("leaders").upload(path, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+      if (error) throw new Error(error.message);
+      const { data: publicUrl } = supabase.storage.from("leaders").getPublicUrl(path);
+      setLeaderDraft({ ...leaderDraft, image_url: publicUrl.publicUrl });
+      toast.success("Photo uploaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Photo upload failed");
+    } finally {
+      setUploadingPhoto(false);
+      event.target.value = "";
+    }
+  }
+
+  function submitLeader(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!leaderDraft) return;
+    if (!leaderDraft.name.trim()) {
+      toast.error("Name is required");
+      return;
+    }
+    if (!leaderDraft.position.trim()) {
+      toast.error("Position is required");
+      return;
+    }
+    if (!leaderDraft.image_url.trim()) {
+      toast.error("Photo is required — upload one first");
+      return;
+    }
+    if (leaderDraft.description.trim().length > MAX_LEADER_DESCRIPTION) {
+      toast.error(`Description must be ${MAX_LEADER_DESCRIPTION} characters or fewer`);
+      return;
+    }
+    saveLeader.mutate(leaderDraft);
+  }
+
+  const { data: team = [] } = useQuery({
+    queryKey: ["admin-team"],
+    enabled: isAdmin === true && canAccess("team"),
+    queryFn: () => listTeam(),
+  });
+
+  const { data: admins = [] } = useQuery({
+    queryKey: ["admin-management-admins"],
+    enabled: isAdmin === true && isOwner,
+    queryFn: () => listAdmins(),
+  });
+
+  const saveProfile = useMutation({
+    mutationFn: (input: { displayName: string; avatarUrl: string | null }) =>
+      updateAdminProfile({ data: input }),
+    onSuccess: () => {
+      toast.success("Profile updated");
+      setProfileOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["admin-session"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-management-admins"] });
+      queryClient.invalidateQueries({ queryKey: ["members"] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update profile"),
+  });
+
+  const toggleSection = useMutation({
+    mutationFn: (input: { adminId: string; section: AdminSection; allowed: boolean }) =>
+      setAdminSectionAllowed({ data: input }),
+    onSuccess: () => {
+      toast.success("Permissions updated");
+      queryClient.invalidateQueries({ queryKey: ["admin-management-admins"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-session"] });
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Could not update permissions"),
+  });
+
+  const toggleDisabled = useMutation({
+    mutationFn: (input: { adminId: string; disabled: boolean }) =>
+      setAdminDisabled({ data: input }),
+    onSuccess: () => {
+      toast.success("Admin updated");
+      setDisableTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-management-admins"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-session"] });
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Could not update this admin"),
+  });
+
+  function openProfile() {
+    setProfileName(session?.displayName ?? "");
+    setProfileAvatar(session?.avatarUrl ?? null);
+    setProfileOpen(true);
+    setSidebarOpen(false);
+  }
+
+  function submitProfile(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    saveProfile.mutate({ displayName: profileName, avatarUrl: profileAvatar });
+  }
+
+  async function handleProfilePhoto(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      toast.error("Please use a PNG, JPG or WebP image");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Photo must be under 5 MB");
+      return;
+    }
+    setProfileUploading(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const path = `profiles/${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.storage.from("admin-avatars").upload(path, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+      if (error) throw new Error(error.message);
+      const { data: publicUrl } = supabase.storage.from("admin-avatars").getPublicUrl(path);
+      setProfileAvatar(publicUrl.publicUrl);
+      toast.success("Photo uploaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Photo upload failed");
+    } finally {
+      setProfileUploading(false);
+      event.target.value = "";
+    }
+  }
+
+  const saveTeamMember = useMutation({
+    mutationFn: (member: AdminTeamMember) => saveTeamMemberApi({ data: member }),
+    onSuccess: () => {
+      toast.success("Team member saved");
+      setTeamDraft(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-team"] });
+      queryClient.invalidateQueries({ queryKey: ["public-team"] });
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Could not save this team member"),
+  });
+
+  const removeTeamMember = useMutation({
+    mutationFn: (id: string) => deleteTeamMemberApi({ data: id }),
+    onSuccess: () => {
+      toast.success("Team member removed");
+      queryClient.invalidateQueries({ queryKey: ["admin-team"] });
+      queryClient.invalidateQueries({ queryKey: ["public-team"] });
+    },
+    onError: () => toast.error("Could not remove this team member"),
+  });
+
+  const reorderTeam = useMutation({
+    mutationFn: (rows: { id: string; display_order: number }[]) => saveTeamOrderApi({ data: rows }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-team"] });
+    },
+    onError: () => toast.error("Could not reorder team members"),
+  });
+
+  function moveTeamMember(index: number, direction: -1 | 1) {
+    const next = [...team];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    const item = next[index];
+    if (!item) return;
+    next.splice(index, 1);
+    next.splice(target, 0, item);
+    reorderTeam.mutate(next.map((member, i) => ({ id: member.id, display_order: i + 1 })));
+  }
+
+  async function handleTeamPhoto(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !teamDraft) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      toast.error("Please use a PNG, JPG or WebP image");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Photo must be under 5 MB");
+      return;
+    }
+    setTeamUploading(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const path = `team/${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.storage.from("team").upload(path, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+      if (error) throw new Error(error.message);
+      const { data: publicUrl } = supabase.storage.from("team").getPublicUrl(path);
+      setTeamDraft({ ...teamDraft, avatar_url: publicUrl.publicUrl });
+      toast.success("Photo uploaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Photo upload failed");
+    } finally {
+      setTeamUploading(false);
+      event.target.value = "";
+    }
+  }
+
+  function submitTeam(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!teamDraft) return;
+    if (!teamDraft.name.trim()) {
+      toast.error("Name is required");
+      return;
+    }
+    if (!teamDraft.role_title.trim()) {
+      toast.error("Role title is required");
+      return;
+    }
+    if (!teamDraft.avatar_url.trim()) {
+      toast.error("Photo is required — upload one first");
+      return;
+    }
+    const linkedin_url = (teamDraft.linkedin_url ?? "").trim();
+    if (linkedin_url && !isValidLinkedinUrl(linkedin_url)) {
+      toast.error(
+        "LinkedIn must be a valid linkedin.com URL (e.g. https://www.linkedin.com/in/name)",
+      );
+      return;
+    }
+    saveTeamMember.mutate(teamDraft);
+  }
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return members
@@ -297,6 +789,8 @@ function AdminPage() {
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   }, [members, level, department, search]);
+
+  const managedMember = members.find((member) => member.id === manageId) ?? null;
 
   const now = useMemo(() => Date.now(), []);
   const statusBreakdown = useMemo(() => {
@@ -374,7 +868,7 @@ function AdminPage() {
         m.full_name,
         m.level,
         m.department,
-        m.speciality,
+        m.speciality ?? "",
         isBlocked(m) ? "blocked" : m.status,
         m.blocked_until ? new Date(m.blocked_until).toLocaleDateString("en-GB") : "",
       ]),
@@ -387,21 +881,63 @@ function AdminPage() {
     toast.success(`${rows.length} members exported`);
   }
 
+  const filteredNavItems = useMemo(() => {
+    return navItems.filter((item) => {
+      if (item.key === "admins") return isOwner;
+      if (isOwner) return true;
+      return session?.sections.includes(item.key) ?? false;
+    });
+  }, [isOwner, session]);
+
+  const currentNavItem = filteredNavItems.find((item) => item.key === tab);
+  const headerLabel = tab === "email" ? "Email" : (currentNavItem?.label ?? "");
+
+  useEffect(() => {
+    if (tab === "email") return;
+    const firstKey = filteredNavItems[0]?.key;
+    if (firstKey && !filteredNavItems.some((item) => item.key === tab)) {
+      setTab(firstKey);
+    }
+  }, [tab, filteredNavItems]);
+
   if (roleLoading) {
-    return <div className="grid min-h-screen place-items-center font-bold">Loading…</div>;
+    return (
+      <div className="admin-theme grid min-h-screen place-items-center font-bold text-white">
+        Loading…
+      </div>
+    );
   }
 
   if (!isAdmin) {
     return (
-      <div className="grid min-h-screen place-items-center px-5">
-        <div className="clay-lg max-w-md rounded-3xl bg-card p-8 text-center">
-          <h1 className="font-display text-2xl font-bold">Not a club officer</h1>
-          <p className="mt-2 font-semibold text-muted-foreground">
+      <div className="admin-theme grid min-h-screen place-items-center px-5">
+        <div className="admin-glass w-full max-w-md rounded-3xl p-8 text-center">
+          <h1 className="font-display text-2xl font-bold text-white">Not a club officer</h1>
+          <p className="mt-2 font-semibold text-[#94a3c8]">
             This account doesn't have admin access to the member list.
           </p>
           <button
             onClick={signOut}
-            className="clay-sm mt-6 rounded-2xl bg-brand px-6 py-3 font-bold text-primary-foreground"
+            className="clay-sm mt-6 rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (session?.disabled) {
+    return (
+      <div className="admin-theme grid min-h-screen place-items-center px-5">
+        <div className="admin-glass w-full max-w-md rounded-3xl p-8 text-center">
+          <h1 className="font-display text-2xl font-bold text-white">Access revoked</h1>
+          <p className="mt-2 font-semibold text-[#94a3c8]">
+            The club owner has paused your admin access. Contact the owner to restore it.
+          </p>
+          <button
+            onClick={signOut}
+            className="clay-sm mt-6 rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white"
           >
             Sign out
           </button>
@@ -411,995 +947,2135 @@ function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background px-5 py-10">
-      <div className="mx-auto max-w-6xl">
-        <div className="clay-lg rounded-3xl bg-card p-8 md:p-10">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-extrabold tracking-wide text-brand-deep uppercase">
-                Admin dashboard
-              </p>
-              <h1 className="font-display text-2xl font-bold">Member management</h1>
-            </div>
-            <div className="flex items-center gap-3">
-              <Link
-                to="/"
-                className="clay-sm rounded-2xl bg-background px-5 py-2.5 text-sm font-bold"
-              >
-                View site
-              </Link>
-              <button
-                onClick={signOut}
-                className="clay-sm rounded-2xl bg-brand-deep px-5 py-2.5 text-sm font-bold text-primary-foreground"
-              >
-                Sign out
-              </button>
-            </div>
-          </div>
-
-          <div className="mb-6 flex gap-2">
-            <button
-              onClick={() => setTab("dashboard")}
-              className={
-                tab === "dashboard"
-                  ? "clay-sm rounded-xl bg-brand px-4 py-2 text-sm font-bold text-primary-foreground"
-                  : "clay-sm rounded-2xl bg-background px-4 py-2 text-sm font-bold"
-              }
-            >
-              Dashboard
-            </button>
-            <button
-              onClick={() => setTab("members")}
-              className={
-                tab === "members"
-                  ? "clay-sm rounded-xl bg-brand px-4 py-2 text-sm font-bold text-primary-foreground"
-                  : "clay-sm rounded-2xl bg-background px-4 py-2 text-sm font-bold"
-              }
-            >
-              Members
-            </button>
-            <button
-              onClick={() => setTab("events")}
-              className={
-                tab === "events"
-                  ? "clay-sm rounded-xl bg-brand px-4 py-2 text-sm font-bold text-primary-foreground"
-                  : "clay-sm rounded-2xl bg-background px-4 py-2 text-sm font-bold"
-              }
-            >
-              Events
-            </button>
-            <button
-              onClick={() => setTab("email")}
-              className={
-                tab === "email"
-                  ? "clay-sm rounded-xl bg-brand px-4 py-2 text-sm font-bold text-primary-foreground"
-                  : "clay-sm rounded-2xl bg-background px-4 py-2 text-sm font-bold"
-              }
-            >
-              Email
-            </button>
-          </div>
-
-          {tab === "dashboard" && (
-            <div className="mt-6 space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="clay-sm rounded-2xl bg-background p-4">
-                  <p className="font-display text-2xl font-bold text-brand-deep">
-                    {members.length}
-                  </p>
-                  <p className="text-[11px] font-extrabold tracking-wide text-muted-foreground uppercase">
-                    Total members
-                  </p>
-                </div>
-                <div className="clay-sm rounded-2xl bg-background p-4">
-                  <p className="font-display text-2xl font-bold">{statusBreakdown.active}</p>
-                  <p className="text-[11px] font-extrabold tracking-wide text-muted-foreground uppercase">
-                    Active
-                  </p>
-                </div>
-                <div className="clay-sm rounded-2xl bg-background p-4">
-                  <p className="font-display text-2xl font-bold">{statusBreakdown.pending}</p>
-                  <p className="text-[11px] font-extrabold tracking-wide text-muted-foreground uppercase">
-                    Pending
-                  </p>
-                </div>
-                <div className="clay-sm rounded-2xl bg-background p-4">
-                  <p className="font-display text-2xl font-bold">{statusBreakdown.blocked}</p>
-                  <p className="text-[11px] font-extrabold tracking-wide text-muted-foreground uppercase">
-                    Blocked
-                  </p>
-                </div>
-              </div>
-
-              {members.length === 0 && (
-                <p className="rounded-2xl bg-background px-4 py-6 text-center font-semibold text-muted-foreground">
-                  No members yet — add members from the Members tab to see analytics.
-                </p>
-              )}
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="clay-sm rounded-2xl bg-background p-4">
-                  <p className="text-xs font-extrabold tracking-wide text-muted-foreground uppercase">
-                    Members by level
-                  </p>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={levelDist}
-                          dataKey="value"
-                          nameKey="name"
-                          innerRadius={45}
-                          outerRadius={75}
-                          paddingAngle={2}
-                        >
-                          {levelDist.map((entry, i) => (
-                            <Cell
-                              key={entry.name}
-                              fill={["#6366f1", "#a855f7", "#f59e0b", "#10b981", "#3b82f6"][i % 5]}
-                            />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="clay-sm rounded-2xl bg-background p-4">
-                  <p className="text-xs font-extrabold tracking-wide text-muted-foreground uppercase">
-                    Members by department
-                  </p>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={departmentDist}>
-                        <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
-                        <YAxis allowDecimals={false} width={28} />
-                        <Tooltip />
-                        <Bar dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-
-              <div className="clay-sm rounded-2xl bg-background p-4">
-                <p className="text-xs font-extrabold tracking-wide text-muted-foreground uppercase">
-                  Events — last 6 months
-                </p>
-                {eventTrend.every((e) => e.count === 0) ? (
-                  <p className="py-10 text-center font-semibold text-muted-foreground">
-                    No events yet.
-                  </p>
-                ) : (
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={eventTrend}>
-                        <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                        <YAxis allowDecimals={false} width={28} />
-                        <Tooltip />
-                        <Legend />
-                        <Line
-                          type="monotone"
-                          dataKey="count"
-                          stroke="#6366f1"
-                          strokeWidth={2}
-                          dot={{ r: 3 }}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {(tab === "members" || tab === "events") && (
-            <div className="mt-6 grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
-              <div className="clay-sm rounded-2xl bg-background p-4">
-                <p className="font-display text-2xl font-bold text-brand-deep">{members.length}</p>
-                <p className="text-[11px] font-extrabold tracking-wide text-muted-foreground uppercase">
-                  Total
-                </p>
-              </div>
-              {LEVELS.map((lvl) => (
-                <div key={lvl} className="clay-sm rounded-2xl bg-background p-4">
-                  <p className="font-display text-2xl font-bold">
-                    {members.filter((m) => m.level === lvl).length}
-                  </p>
-                  <p className="text-[11px] font-extrabold tracking-wide text-muted-foreground uppercase">
-                    {lvl}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {tab === "members" && (
-            <>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <select
-                  value={level}
-                  onChange={(e) => setLevel(e.target.value)}
-                  className={controlClass}
-                >
-                  <option value="all">All levels</option>
-                  {LEVELS.map((lvl) => (
-                    <option key={lvl} value={lvl}>
-                      {lvl}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  className={controlClass}
-                >
-                  <option value="all">All departments</option>
-                  {DEPARTMENTS.map((dep) => (
-                    <option key={dep} value={dep}>
-                      {dep}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search members…"
-                  className={`${controlClass} w-56 font-semibold`}
-                />
-                <button
-                  onClick={() => exportToExcel(filtered)}
-                  disabled={filtered.length === 0}
-                  className="clay-sm ml-auto rounded-2xl bg-brand px-4 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-60"
-                >
-                  Export .xlsx
-                </button>
-              </div>
-
-              <div className="clay-sm mt-6 overflow-x-auto rounded-2xl">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-background text-left text-xs font-extrabold tracking-wide text-muted-foreground uppercase">
-                      <th className="px-5 py-3">Member</th>
-                      <th className="px-5 py-3">Level</th>
-                      <th className="px-5 py-3">Department</th>
-                      <th className="px-5 py-3">Speciality</th>
-                      <th className="px-5 py-3">Status</th>
-                      <th className="px-5 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border bg-card">
-                    {isLoading && (
-                      <tr>
-                        <td
-                          colSpan={6}
-                          className="px-5 py-8 text-center font-semibold text-muted-foreground"
-                        >
-                          Loading…
-                        </td>
-                      </tr>
-                    )}
-                    {filtered.length === 0 && !isLoading && (
-                      <tr>
-                        <td
-                          colSpan={6}
-                          className="px-5 py-8 text-center font-semibold text-muted-foreground"
-                        >
-                          No matching members found.
-                        </td>
-                      </tr>
-                    )}
-                    {filtered.map((member) => (
-                      <tr key={member.id}>
-                        <td className="px-5 py-3.5">
-                          <p className="font-bold">{member.full_name}</p>
-                          {member.admin_role && (
-                            <p className="text-[11px] font-extrabold tracking-wide uppercase text-brand">
-                              {ROLE_LABELS[member.admin_role] ?? member.admin_role}
-                            </p>
-                          )}
-                          <p className="text-xs text-muted-foreground">
-                            {member.phone} — {member.email}
-                          </p>
-                        </td>
-                        <td className="px-5 py-3.5 font-semibold">{member.level}</td>
-                        <td className="px-5 py-3.5 font-semibold">{member.department}</td>
-                        <td className="px-5 py-3.5 font-semibold">{member.speciality}</td>
-                        <td className="px-5 py-3.5">
-                          {isBlocked(member) ? (
-                            <div>
-                              <span className="inline-block rounded-full bg-blossom/25 px-3 py-1 text-[11px] font-extrabold uppercase text-blossom-foreground">
-                                Blocked
-                              </span>
-                              <p className="mt-1 text-[11px] font-bold text-blossom-foreground">
-                                until{" "}
-                                {new Date(member.blocked_until as string).toLocaleDateString(
-                                  "en-GB",
-                                )}
-                              </p>
-                            </div>
-                          ) : (
-                            <span
-                              className={`inline-block rounded-full px-3 py-1 text-[11px] font-extrabold uppercase ${
-                                member.status === "active"
-                                  ? "bg-mint/25 text-mint-foreground"
-                                  : "bg-lemon/30 text-lemon-foreground"
-                              }`}
-                            >
-                              {member.status}
-                            </span>
-                          )}
-                        </td>
-                        <td className="space-x-2 px-5 py-3.5 text-right whitespace-nowrap">
-                          <button
-                            onClick={() => {
-                              setBlockTarget(member);
-                              setBlockOption("1w");
-                              setCustomUntil("");
-                            }}
-                            className={`clay-sm rounded-lg px-3 py-1.5 text-xs font-bold ${
-                              isBlocked(member)
-                                ? "bg-mint/30 text-mint-foreground"
-                                : "bg-blossom/25 text-blossom-foreground"
-                            }`}
-                          >
-                            {isBlocked(member) ? "Unblock" : "Block"}
-                          </button>
-                          <button
-                            onClick={() => setEditing(member)}
-                            className="clay-sm rounded-lg bg-lemon/40 px-3 py-1.5 text-xs font-bold text-lemon-foreground"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`Remove ${member.full_name} from the club?`)) {
-                                removeMember.mutate(member.id);
-                              }
-                            }}
-                            className="clay-sm rounded-lg bg-blossom/25 px-3 py-1.5 text-xs font-bold text-blossom-foreground"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+    <ShadTooltipProvider delayDuration={100}>
+      <div className="admin-theme relative">
+        <div className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/10 bg-[#060b18]/85 px-4 py-3 backdrop-blur-xl lg:hidden">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open navigation"
+            className="rounded-xl border border-white/15 bg-white/5 p-2 text-white"
+          >
+            <Menu className="size-5" />
+          </button>
+          <p className="font-display text-lg font-bold text-white">
+            Wavez <span className="text-[#6fa0ff]">Admin</span>
+          </p>
         </div>
 
-        {tab === "email" && (
-          <div className="mt-6">
-            {emailView === "recipients" ? (
-              <div>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-extrabold tracking-wide text-brand uppercase">
-                      Bulk email
-                    </p>
-                    <h2 className="font-display text-2xl font-bold">Email members</h2>
-                  </div>
-                  <button
-                    onClick={() => {
-                      if (selectedIds.size === 0) {
-                        toast.error("Select at least one member");
-                        return;
-                      }
-                      setEmailView("compose");
-                    }}
-                    disabled={selectedIds.size === 0}
-                    className="clay-sm rounded-2xl bg-brand px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-60"
-                  >
-                    Compose email
-                  </button>
-                </div>
-                <p className="mt-2 text-sm font-semibold text-muted-foreground">
-                  {selectedIds.size} of {members.length} selected
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        <aside
+          className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col gap-6 border-r border-white/10 bg-[#081020]/95 p-5 backdrop-blur-2xl transition-transform duration-200 lg:hidden ${
+            sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-[#2e6bff]/50 bg-[#2e6bff]/15 text-[#6fa0ff]">
+                <Waves className="size-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="font-display text-lg leading-none font-bold text-white">Wavez</p>
+                <p className="mt-0.5 truncate text-[11px] font-semibold tracking-wide text-[#94a3c8]">
+                  Member console
                 </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Close navigation"
+              className="rounded-xl border border-white/10 bg-white/5 p-2 text-[#94a3c8] lg:hidden"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
 
-                <label className="clay-sm mt-4 flex cursor-pointer items-center gap-2 rounded-2xl bg-background px-4 py-3 text-sm font-bold">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.size === members.length && members.length > 0}
-                    onChange={(e) =>
-                      setSelectedIds(
-                        e.target.checked ? new Set(members.map((m) => m.id)) : new Set(),
-                      )
-                    }
-                  />
-                  Select all members
-                </label>
+          <nav className="flex flex-col gap-1.5">
+            {filteredNavItems.map(({ key, label, icon: Icon }) => {
+              const active = tab === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setTab(key);
+                    setManageId(null);
+                    setSidebarOpen(false);
+                  }}
+                  className={`admin-nav-item ${active ? "admin-nav-item-active" : ""}`}
+                >
+                  <Icon className="size-[18px] shrink-0" />
+                  {label}
+                </button>
+              );
+            })}
+          </nav>
 
-                <div className="mt-4 max-h-96 overflow-y-auto rounded-2xl bg-background p-3">
-                  {members.map((member) => (
-                    <label
-                      key={member.id}
-                      className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-card"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(member.id)}
-                        onChange={(e) => {
-                          const next = new Set(selectedIds);
-                          if (e.target.checked) next.add(member.id);
-                          else next.delete(member.id);
-                          setSelectedIds(next);
-                        }}
-                      />
-                      <span className="text-sm font-bold">{member.full_name}</span>
-                      <span className="ml-auto text-xs text-muted-foreground">{member.email}</span>
-                    </label>
+          <button onClick={openProfile} className="admin-nav-item text-xs">
+            <User className="size-4 shrink-0" />
+            My profile
+          </button>
+
+          <div className="mt-auto flex flex-col gap-2">
+            <Link to="/" className="admin-nav-item text-xs">
+              <ExternalLink className="size-4 shrink-0" />
+              View public site
+            </Link>
+            <button
+              onClick={signOut}
+              className="admin-nav-item text-xs text-[#fda4af] hover:text-[#fda4af]"
+            >
+              <LogOut className="size-4 shrink-0" />
+              Sign out
+            </button>
+          </div>
+        </aside>
+
+        <aside className="fixed inset-y-0 left-0 z-50 hidden w-20 flex-col items-center gap-3 border-r border-white/10 bg-[#081020]/95 py-5 backdrop-blur-2xl lg:flex">
+          <Link
+            to="/"
+            aria-label="Open the Wavez Club public site"
+            className="grid size-11 place-items-center rounded-2xl border border-[#2e6bff]/50 bg-[#2e6bff]/15"
+          >
+            <img src={logo} alt="Wavez Club" className="size-7 rounded-lg object-contain" />
+          </Link>
+
+          <nav className="mt-2 flex flex-col items-center gap-1.5">
+            {filteredNavItems.map(({ key, label, icon: Icon }) => (
+              <ShadTooltip key={key}>
+                <ShadTooltipTrigger asChild>
+                  <button
+                    aria-label={label}
+                    onClick={() => {
+                      setTab(key);
+                      setManageId(null);
+                    }}
+                    className={`grid size-11 place-items-center rounded-2xl transition-colors ${
+                      tab === key
+                        ? "bg-[#2e6bff] text-white shadow-[0_10px_30px_-12px_rgba(46,107,255,0.7)]"
+                        : "text-[#94a3c8] hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    <Icon className="size-5" />
+                  </button>
+                </ShadTooltipTrigger>
+                <ShadTooltipContent
+                  side="right"
+                  className="border border-white/10 bg-[#101c36] font-semibold text-white"
+                >
+                  {label}
+                </ShadTooltipContent>
+              </ShadTooltip>
+            ))}
+          </nav>
+
+          <div className="mt-auto">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  aria-label="Account menu"
+                  className="rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2e6bff]"
+                >
+                  <Avatar className="size-10 ring-2 ring-white/10">
+                    <AvatarImage src={session?.avatarUrl ?? undefined} alt="" />
+                    <AvatarFallback className="bg-[#2e6bff]/25 font-display text-sm font-bold text-white">
+                      {avatarFallback(session?.displayName ?? null, session?.email ?? null)}
+                    </AvatarFallback>
+                  </Avatar>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side="right"
+                sideOffset={12}
+                align="end"
+                className="w-60 border-white/10 bg-[#0a1226] text-white"
+              >
+                <DropdownMenuLabel className="truncate font-bold text-white">
+                  {session?.displayName?.trim() || "Club admin"}
+                </DropdownMenuLabel>
+                <DropdownMenuLabel className="pt-0 text-xs font-semibold text-[#94a3c8]">
+                  {session?.isOwner ? "President" : prettyRole(session?.role || null)}
+                </DropdownMenuLabel>
+                <DropdownMenuLabel className="truncate pt-0 text-[11px] font-medium text-[#6fa0ff]">
+                  {session?.email}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-white/10" />
+                <DropdownMenuItem
+                  onClick={openProfile}
+                  className="cursor-pointer focus:bg-[#2e6bff]/20 focus:text-white"
+                >
+                  <User className="size-4" />
+                  My profile
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => navigate({ to: "/" })}
+                  className="cursor-pointer focus:bg-[#2e6bff]/20 focus:text-white"
+                >
+                  <ExternalLink className="size-4" />
+                  Public site
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-white/10" />
+                <DropdownMenuItem
+                  onClick={signOut}
+                  className="cursor-pointer text-[#fda4af] focus:bg-[#f43f5e]/20 focus:text-[#fda4af]"
+                >
+                  <LogOut className="size-4" />
+                  Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </aside>
+
+        <main className="relative z-10 min-h-screen lg:pl-20">
+          <div className="mx-auto max-w-6xl px-5 py-8">
+            <div className="admin-glass rounded-3xl p-6 md:p-8">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                    Admin dashboard
+                  </p>
+                  <h1 className="mt-0.5 font-display text-2xl font-bold text-white">
+                    Member management
+                  </h1>
+                </div>
+                <span className="hidden shrink-0 rounded-full border border-[#2e6bff]/40 bg-[#2e6bff]/15 px-3 py-1.5 text-[11px] font-extrabold tracking-wide text-[#6fa0ff] uppercase sm:inline-block">
+                  {headerLabel}
+                </span>
+              </div>
+
+              {tab === "dashboard" && (
+                <div className="mt-6 space-y-4">
+                  {!canAccess("members") && !canAccess("events") && (
+                    <div className="admin-glass rounded-2xl px-4 py-8 text-center">
+                      <p className="font-display text-xl font-bold text-white">Welcome back</p>
+                      <p className="mt-2 font-semibold text-[#94a3c8]">
+                        Your access to the section analytics below is limited — ask the club owner
+                        to grant it in the Admins page if you need to see them.
+                      </p>
+                    </div>
+                  )}
+
+                  {canAccess("members") && (
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="admin-glass rounded-2xl p-4">
+                        <p className="font-display text-3xl font-bold text-[#6fa0ff]">
+                          {members.length}
+                        </p>
+                        <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                          Total members
+                        </p>
+                      </div>
+                      <div className="admin-glass rounded-2xl p-4">
+                        <p className="font-display text-3xl font-bold text-[#6fa0ff]">
+                          {statusBreakdown.active}
+                        </p>
+                        <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                          Active
+                        </p>
+                      </div>
+                      <div className="admin-glass rounded-2xl p-4">
+                        <p className="font-display text-3xl font-bold text-[#fcd34d]">
+                          {statusBreakdown.pending}
+                        </p>
+                        <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                          Pending
+                        </p>
+                      </div>
+                      <div className="admin-glass rounded-2xl p-4">
+                        <p className="font-display text-3xl font-bold text-[#fda4af]">
+                          {statusBreakdown.blocked}
+                        </p>
+                        <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                          Blocked
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {canAccess("members") && members.length === 0 && (
+                    <p className="admin-glass rounded-2xl px-4 py-6 text-center font-semibold text-[#94a3c8]">
+                      No members yet — add members from the Members tab to see analytics.
+                    </p>
+                  )}
+
+                  {canAccess("members") && (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="admin-glass rounded-2xl p-4">
+                        <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                          Members by level
+                        </p>
+                        <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={levelDist}
+                                dataKey="value"
+                                nameKey="name"
+                                innerRadius={45}
+                                outerRadius={75}
+                                paddingAngle={2}
+                              >
+                                {levelDist.map((entry, i) => (
+                                  <Cell
+                                    key={entry.name}
+                                    fill={CHART_COLORS[i % CHART_COLORS.length] ?? "#2e6bff"}
+                                  />
+                                ))}
+                              </Pie>
+                              <Tooltip contentStyle={chartTooltipStyle} />
+                              <Legend
+                                wrapperStyle={{ color: "#c7d2fe", fontSize: 12, fontWeight: 600 }}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+
+                      <div className="admin-glass rounded-2xl p-4">
+                        <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                          Members by department
+                        </p>
+                        <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={departmentDist}>
+                              <XAxis
+                                dataKey="name"
+                                tick={axisTick}
+                                interval={0}
+                                stroke={gridStroke}
+                              />
+                              <YAxis
+                                allowDecimals={false}
+                                width={28}
+                                tick={axisTick}
+                                stroke={gridStroke}
+                              />
+                              <Tooltip
+                                contentStyle={chartTooltipStyle}
+                                cursor={{ fill: "rgba(46,107,255,0.15)" }}
+                              />
+                              <Bar dataKey="value" fill="#2e6bff" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {canAccess("events") && (
+                    <div className="admin-glass rounded-2xl p-4">
+                      <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                        Events — last 6 months
+                      </p>
+                      {eventTrend.every((e) => e.count === 0) ? (
+                        <p className="py-10 text-center font-semibold text-[#94a3c8]">
+                          No events yet.
+                        </p>
+                      ) : (
+                        <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={eventTrend}>
+                              <XAxis dataKey="month" tick={axisTick} stroke={gridStroke} />
+                              <YAxis
+                                allowDecimals={false}
+                                width={28}
+                                tick={axisTick}
+                                stroke={gridStroke}
+                              />
+                              <Tooltip contentStyle={chartTooltipStyle} />
+                              <Legend
+                                wrapperStyle={{ color: "#c7d2fe", fontSize: 12, fontWeight: 600 }}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="count"
+                                stroke="#2e6bff"
+                                strokeWidth={2}
+                                dot={{ r: 3, fill: "#2e6bff" }}
+                                activeDot={{ r: 5 }}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {(tab === "members" || tab === "events") && (
+                <div className="mt-6 grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
+                  <div className="admin-glass rounded-2xl p-4">
+                    <p className="font-display text-3xl font-bold text-[#6fa0ff]">
+                      {members.length}
+                    </p>
+                    <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                      Total
+                    </p>
+                  </div>
+                  {LEVELS.map((lvl) => (
+                    <div key={lvl} className="admin-glass rounded-2xl p-4">
+                      <p className="font-display text-3xl font-bold text-[#6fa0ff]">
+                        {members.filter((m) => m.level === lvl).length}
+                      </p>
+                      <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                        {lvl}
+                      </p>
+                    </div>
                   ))}
                 </div>
+              )}
 
-                {drafts.length > 0 && (
-                  <div className="mt-6">
-                    <h3 className="text-xs font-extrabold tracking-wide text-muted-foreground uppercase">
-                      Saved drafts
-                    </h3>
-                    <div className="mt-2 grid gap-2">
-                      {drafts.map((draft) => (
-                        <div
-                          key={draft.id}
-                          className="clay-sm flex items-center gap-3 rounded-2xl bg-background px-4 py-3"
-                        >
-                          <button
-                            onClick={() => {
-                              setEmailSubject(draft.subject);
-                              setEmailBody(draft.body);
-                              setSelectedIds(new Set(draft.recipient_ids));
-                              setEmailTemplate("custom");
-                              setSelectedDraftId(draft.id);
-                              setEmailView("compose");
-                            }}
-                            className="flex-1 text-left"
-                          >
-                            <p className="font-bold">{draft.subject || "(no subject)"}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {draft.recipient_ids.length} recipients ·{" "}
-                              {new Date(draft.created_at).toLocaleDateString("en-GB")}
-                            </p>
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm("Delete this draft?")) removeDraft.mutate(draft.id);
-                            }}
-                            className="clay-sm rounded-lg bg-blossom/20 px-3 py-1.5 text-xs font-bold text-blossom-foreground"
-                          >
-                            Delete
-                          </button>
-                        </div>
+              {tab === "members" && (
+                <>
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <select
+                      value={level}
+                      onChange={(e) => setLevel(e.target.value)}
+                      className={controlClass}
+                    >
+                      <option value="all">All levels</option>
+                      {LEVELS.map((lvl) => (
+                        <option key={lvl} value={lvl}>
+                          {lvl}
+                        </option>
                       ))}
+                    </select>
+                    <select
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                      className={controlClass}
+                    >
+                      <option value="all">All departments</option>
+                      {DEPARTMENTS.map((dep) => (
+                        <option key={dep} value={dep}>
+                          {dep}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search members…"
+                      className={`${controlClass} w-56 font-semibold`}
+                    />
+                    <button
+                      onClick={() => exportToExcel(filtered)}
+                      disabled={filtered.length === 0}
+                      className="clay-sm ml-auto flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-4 py-2.5 text-sm font-bold text-white shadow-[0_10px_30px_-14px_rgba(46,107,255,0.55)] disabled:opacity-60"
+                    >
+                      <Download className="size-4" />
+                      Export .xlsx
+                    </button>
+                  </div>
+
+                  <div className="admin-glass mt-6 overflow-x-auto rounded-2xl">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-white/[0.04] text-left text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                          <th className="px-5 py-3">Member</th>
+                          <th className="px-5 py-3">Join date</th>
+                          <th className="px-5 py-3">Status</th>
+                          <th className="px-5 py-3">Department/Level</th>
+                          <th className="px-5 py-3 text-right">Manage</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/10">
+                        {isLoading && (
+                          <tr>
+                            <td
+                              colSpan={5}
+                              className="px-5 py-8 text-center font-semibold text-[#94a3c8]"
+                            >
+                              Loading…
+                            </td>
+                          </tr>
+                        )}
+                        {filtered.length === 0 && !isLoading && (
+                          <tr>
+                            <td
+                              colSpan={5}
+                              className="px-5 py-8 text-center font-semibold text-[#94a3c8]"
+                            >
+                              No matching members found.
+                            </td>
+                          </tr>
+                        )}
+                        {filtered.map((member) => (
+                          <tr key={member.id} className="transition-colors hover:bg-white/[0.04]">
+                            <td className="px-5 py-3.5">
+                              <p className="font-bold text-white">{member.full_name}</p>
+                              {member.admin_role && (
+                                <p className="text-[11px] font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                                  {ROLE_LABELS[member.admin_role] ?? member.admin_role}
+                                </p>
+                              )}
+                              <p className="text-xs text-[#94a3c8]">
+                                {member.phone} — {member.email}
+                              </p>
+                            </td>
+                            <td className="px-5 py-3.5 font-semibold whitespace-nowrap">
+                              {new Date(member.created_at).toLocaleDateString("en-GB")}
+                            </td>
+                            <td className="px-5 py-3.5">
+                              {isBlocked(member) ? (
+                                <div>
+                                  <span className="inline-block rounded-full bg-[#f43f5e]/20 px-3 py-1 text-[11px] font-extrabold text-[#fda4af] uppercase">
+                                    Blocked
+                                  </span>
+                                  <p className="mt-1 text-[11px] font-bold text-[#fda4af]">
+                                    until{" "}
+                                    {new Date(member.blocked_until as string).toLocaleDateString(
+                                      "en-GB",
+                                    )}
+                                  </p>
+                                </div>
+                              ) : (
+                                <span
+                                  className={`inline-block rounded-full px-3 py-1 text-[11px] font-extrabold uppercase ${
+                                    member.status === "active"
+                                      ? "bg-[#34d399] text-[#04121a]"
+                                      : "bg-[#f59e0b]/20 text-[#fcd34d]"
+                                  }`}
+                                >
+                                  {member.status}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <p className="font-semibold text-white">{member.level}</p>
+                              <p className="text-xs text-[#94a3c8]">
+                                {member.department}
+                                {member.speciality ? ` · ${member.speciality}` : ""}
+                              </p>
+                            </td>
+                            <td className="px-5 py-3.5 text-right">
+                              <button
+                                onClick={() => setManageId(member.id)}
+                                className="clay-sm inline-flex items-center gap-1.5 rounded-lg bg-[#2e6bff]/25 px-3 py-2 text-xs font-bold text-[#a5c3ff] transition-colors hover:bg-[#2e6bff]/40"
+                              >
+                                <Settings2 className="size-3.5" /> Manage
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {tab === "email" && (
+              <div className="admin-glass mt-6 rounded-3xl p-6 md:p-8">
+                {emailView === "recipients" ? (
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-extrabold tracking-wide text-brand uppercase">
+                          Bulk email
+                        </p>
+                        <h2 className="font-display text-2xl font-bold">Email members</h2>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (selectedIds.size === 0) {
+                            toast.error("Select at least one member");
+                            return;
+                          }
+                          setEmailView("compose");
+                        }}
+                        disabled={selectedIds.size === 0}
+                        className="clay-sm flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-5 py-2.5 text-sm font-bold text-white shadow-[0_10px_30px_-14px_rgba(46,107,255,0.55)] disabled:opacity-60"
+                      >
+                        <Send className="size-4" />
+                        Compose email
+                      </button>
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-[#94a3c8]">
+                      {selectedIds.size} of {members.length} selected
+                    </p>
+
+                    <label className="mt-4 flex cursor-pointer items-center gap-2 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-bold text-white">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.size === members.length && members.length > 0}
+                        onChange={(e) =>
+                          setSelectedIds(
+                            e.target.checked ? new Set(members.map((m) => m.id)) : new Set(),
+                          )
+                        }
+                      />
+                      Select all members
+                    </label>
+
+                    <div className="mt-4 max-h-96 overflow-y-auto rounded-2xl border border-white/10 bg-black/20 p-3">
+                      {members.map((member) => (
+                        <label
+                          key={member.id}
+                          className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition-colors hover:bg-white/[0.06]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(member.id)}
+                            onChange={(e) => {
+                              const next = new Set(selectedIds);
+                              if (e.target.checked) next.add(member.id);
+                              else next.delete(member.id);
+                              setSelectedIds(next);
+                            }}
+                          />
+                          <span className="text-sm font-bold text-white">{member.full_name}</span>
+                          <span className="ml-auto text-xs text-[#94a3c8]">{member.email}</span>
+                        </label>
+                      ))}
+                    </div>
+
+                    {drafts.length > 0 && (
+                      <div className="mt-6 overflow-x-auto">
+                        <h3 className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                          Saved drafts
+                        </h3>
+                        <div className="mt-2 grid gap-2">
+                          {drafts.map((draft) => (
+                            <div
+                              key={draft.id}
+                              className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
+                            >
+                              <button
+                                onClick={() => {
+                                  setEmailSubject(draft.subject);
+                                  setEmailBody(draft.body);
+                                  setSelectedIds(new Set(draft.recipient_ids));
+                                  setEmailTemplate("custom");
+                                  setSelectedDraftId(draft.id);
+                                  setEmailView("compose");
+                                }}
+                                className="flex-1 text-left"
+                              >
+                                <p className="font-bold text-white">
+                                  {draft.subject || "(no subject)"}
+                                </p>
+                                <p className="text-xs text-[#94a3c8]">
+                                  {draft.recipient_ids.length} recipients ·{" "}
+                                  {new Date(draft.created_at).toLocaleDateString("en-GB")}
+                                </p>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (confirm("Delete this draft?")) removeDraft.mutate(draft.id);
+                                }}
+                                className="clay-sm inline-flex items-center gap-1 rounded-lg bg-[#f43f5e]/20 px-3 py-1.5 text-xs font-bold text-[#fda4af]"
+                              >
+                                <Trash2 className="size-3.5" /> Delete
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                        Compose email
+                      </p>
+                      <button
+                        onClick={() => setEmailView("recipients")}
+                        className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-[#94a3c8] transition-colors hover:text-white"
+                      >
+                        ← Back to recipients
+                      </button>
+                    </div>
+                    <div className="mt-4 grid gap-4">
+                      <div>
+                        <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                          Template
+                        </label>
+                        <select
+                          className={fieldClass}
+                          value={emailTemplate}
+                          onChange={(e) => {
+                            const tpl = e.target.value;
+                            setEmailTemplate(tpl);
+                            if (tpl === "general-meeting") {
+                              setEmailSubject("Club meeting — this week");
+                              setEmailBody(
+                                "Hi {name},\n\nThis is a reminder that our club meeting takes place this week.\n\nSee you there,\nWavez Club",
+                              );
+                            } else if (tpl === "welcome") {
+                              setEmailSubject("Welcome to Wavez Club");
+                              setEmailBody(
+                                "Hi {name},\n\nWelcome aboard! Here's everything you need to know about your first week with Wavez Club.\n\nBest,\nWavez Club",
+                              );
+                            }
+                          }}
+                        >
+                          <option value="custom">Custom</option>
+                          <option value="general-meeting">Meeting reminder</option>
+                          <option value="welcome">Welcome message</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                          Subject
+                        </label>
+                        <input
+                          className={fieldClass}
+                          value={emailSubject}
+                          onChange={(e) => setEmailSubject(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                          Message
+                        </label>
+                        <textarea
+                          rows={6}
+                          className={fieldClass}
+                          value={emailBody}
+                          onChange={(e) => setEmailBody(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                          Attachment
+                        </label>
+                        <input
+                          type="file"
+                          className={fieldClass}
+                          onChange={(e) => setAttachmentName(e.target.files?.[0]?.name ?? "")}
+                        />
+                        {attachmentName && (
+                          <p className="mt-1 text-xs font-bold text-brand">
+                            Attached: {attachmentName}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          onClick={() => {
+                            const recipients = members
+                              .filter((m) => selectedIds.has(m.id))
+                              .map((m) => m.email);
+                            if (recipients.length === 0) {
+                              toast.error("No recipients selected");
+                              return;
+                            }
+                            sendEmail.mutate({
+                              recipients,
+                              subject: emailSubject,
+                              body: emailBody,
+                            });
+                          }}
+                          disabled={
+                            sendEmail.isPending || !emailSubject.trim() || !emailBody.trim()
+                          }
+                          className="clay-md flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(46,107,255,0.7)] disabled:opacity-60"
+                        >
+                          <Send className="size-4" />
+                          {sendEmail.isPending ? "Sending…" : "Send email"}
+                        </button>
+                        <button
+                          onClick={() =>
+                            saveDraft.mutate({
+                              id: selectedDraftId,
+                              subject: emailSubject,
+                              body: emailBody,
+                              recipientIds: members
+                                .filter((m) => selectedIds.has(m.id))
+                                .map((m) => m.id),
+                            })
+                          }
+                          disabled={
+                            saveDraft.isPending || (!emailSubject.trim() && !emailBody.trim())
+                          }
+                          className="clay-sm inline-flex items-center gap-2 rounded-2xl bg-[#f59e0b]/20 px-6 py-3 font-bold text-[#fcd34d] disabled:opacity-60"
+                        >
+                          <Save className="size-4" />
+                          {saveDraft.isPending ? "Saving…" : "Save draft"}
+                        </button>
+                        <button
+                          onClick={() => setEmailView("recipients")}
+                          className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
-            ) : (
-              <div>
+            )}
+
+            {tab === "events" && (
+              <div className="admin-glass mt-8 rounded-3xl p-6 md:p-8">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-xs font-extrabold tracking-wide text-brand uppercase">
-                    Compose email
-                  </p>
+                  <div>
+                    <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                      Home page content
+                    </p>
+                    <h2 className="font-display text-2xl font-bold text-white">
+                      Events &amp; news
+                    </h2>
+                  </div>
                   <button
-                    onClick={() => setEmailView("recipients")}
-                    className="clay-sm rounded-2xl bg-background px-4 py-2 text-sm font-bold"
+                    onClick={() => setPostDraft({ ...blankPost })}
+                    className="clay-sm flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-5 py-2.5 text-sm font-bold text-white shadow-[0_10px_30px_-14px_rgba(46,107,255,0.55)]"
                   >
-                    ← Back to recipients
+                    <FilePlus2 className="size-4" />
+                    New post
                   </button>
                 </div>
-                <div className="mt-4 grid gap-4">
-                  <div>
-                    <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                      Template
-                    </label>
-                    <select
-                      className={fieldClass}
-                      value={emailTemplate}
-                      onChange={(e) => {
-                        const tpl = e.target.value;
-                        setEmailTemplate(tpl);
-                        if (tpl === "general-meeting") {
-                          setEmailSubject("Club meeting — this week");
-                          setEmailBody(
-                            "Hi {name},\n\nThis is a reminder that our club meeting takes place this week.\n\nSee you there,\nWavez Club",
-                          );
-                        } else if (tpl === "welcome") {
-                          setEmailSubject("Welcome to Wavez Club");
-                          setEmailBody(
-                            "Hi {name},\n\nWelcome aboard! Here's everything you need to know about your first week with Wavez Club.\n\nBest,\nWavez Club",
-                          );
+
+                {postDraft && (
+                  <form
+                    className="mt-6 grid gap-4 rounded-2xl border border-white/10 bg-black/20 p-5 sm:grid-cols-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      savePost.mutate(postDraft);
+                    }}
+                  >
+                    <div className="sm:col-span-2">
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Title
+                      </label>
+                      <input
+                        required
+                        className={fieldClass}
+                        value={postDraft.title}
+                        onChange={(e) => setPostDraft({ ...postDraft, title: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Type
+                      </label>
+                      <select
+                        className={fieldClass}
+                        value={postDraft.kind}
+                        onChange={(e) =>
+                          setPostDraft({ ...postDraft, kind: e.target.value as Post["kind"] })
                         }
-                      }}
+                      >
+                        <option value="event">event</option>
+                        <option value="news">news</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Date &amp; time
+                      </label>
+                      <input
+                        type="datetime-local"
+                        className={fieldClass}
+                        value={postDraft.event_date ? postDraft.event_date.slice(0, 16) : ""}
+                        onChange={(e) =>
+                          setPostDraft({ ...postDraft, event_date: e.target.value || null })
+                        }
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Place
+                      </label>
+                      <input
+                        className={fieldClass}
+                        placeholder="Amphi 3, Faculty of Electrical Engineering"
+                        value={postDraft.location ?? ""}
+                        onChange={(e) => setPostDraft({ ...postDraft, location: e.target.value })}
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Details
+                      </label>
+                      <textarea
+                        rows={4}
+                        className={fieldClass}
+                        value={postDraft.body}
+                        onChange={(e) => setPostDraft({ ...postDraft, body: e.target.value })}
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={postDraft.published}
+                        onChange={(e) =>
+                          setPostDraft({ ...postDraft, published: e.target.checked })
+                        }
+                      />
+                      Visible on the home page
+                    </label>
+                    <div className="flex gap-3 sm:col-span-2">
+                      <button
+                        type="submit"
+                        disabled={savePost.isPending}
+                        className="clay-md rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(46,107,255,0.7)] disabled:opacity-70"
+                      >
+                        Save post
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPostDraft(null)}
+                        className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                <div className="mt-6 grid gap-4 md:grid-cols-2">
+                  {posts.length === 0 && (
+                    <p className="font-semibold text-[#94a3c8]">
+                      No events or news yet — create your first post.
+                    </p>
+                  )}
+                  {posts.map((post) => (
+                    <div
+                      key={post.id}
+                      className="rounded-2xl border border-white/10 bg-black/20 p-5 transition-colors hover:bg-black/30"
                     >
-                      <option value="custom">Custom</option>
-                      <option value="general-meeting">Meeting reminder</option>
-                      <option value="welcome">Welcome message</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                      Subject
-                    </label>
-                    <input
-                      className={fieldClass}
-                      value={emailSubject}
-                      onChange={(e) => setEmailSubject(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                      Message
-                    </label>
-                    <textarea
-                      rows={6}
-                      className={fieldClass}
-                      value={emailBody}
-                      onChange={(e) => setEmailBody(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                      Attachment
-                    </label>
-                    <input
-                      type="file"
-                      className={fieldClass}
-                      onChange={(e) => setAttachmentName(e.target.files?.[0]?.name ?? "")}
-                    />
-                    {attachmentName && (
-                      <p className="mt-1 text-xs font-bold text-brand">
-                        Attached: {attachmentName}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-[#2e6bff]/20 px-3 py-1 text-[11px] font-extrabold text-[#6fa0ff] uppercase">
+                          {post.kind}
+                        </span>
+                        {!post.published && (
+                          <span className="rounded-full bg-[#f59e0b]/20 px-3 py-1 text-[11px] font-extrabold text-[#fcd34d] uppercase">
+                            hidden
+                          </span>
+                        )}
+                        {post.event_date && (
+                          <span className="text-xs font-bold text-[#94a3c8]">
+                            {new Date(post.event_date).toLocaleString("en-GB")}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-3 font-display text-lg font-bold text-white">{post.title}</p>
+                      {post.location && (
+                        <p className="text-xs font-bold text-[#6fa0ff]">📍 {post.location}</p>
+                      )}
+                      <p className="mt-2 line-clamp-3 text-sm font-semibold text-[#94a3c8]">
+                        {post.body}
                       </p>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      onClick={() => {
-                        const recipients = members
-                          .filter((m) => selectedIds.has(m.id))
-                          .map((m) => m.email);
-                        if (recipients.length === 0) {
-                          toast.error("No recipients selected");
-                          return;
-                        }
-                        sendEmail.mutate({ recipients, subject: emailSubject, body: emailBody });
-                      }}
-                      disabled={sendEmail.isPending || !emailSubject.trim() || !emailBody.trim()}
-                      className="clay-md rounded-2xl bg-brand px-6 py-3 font-bold text-primary-foreground disabled:opacity-60"
-                    >
-                      {sendEmail.isPending ? "Sending…" : "Send email"}
-                    </button>
-                    <button
-                      onClick={() =>
-                        saveDraft.mutate({
-                          id: selectedDraftId,
-                          subject: emailSubject,
-                          body: emailBody,
-                          recipientIds: members
-                            .filter((m) => selectedIds.has(m.id))
-                            .map((m) => m.id),
-                        })
-                      }
-                      disabled={saveDraft.isPending || (!emailSubject.trim() && !emailBody.trim())}
-                      className="clay-sm rounded-2xl bg-lemon/40 px-6 py-3 font-bold text-lemon-foreground disabled:opacity-60"
-                    >
-                      {saveDraft.isPending ? "Saving…" : "Save draft"}
-                    </button>
-                    <button
-                      onClick={() => setEmailView("recipients")}
-                      className="clay-sm rounded-2xl bg-background px-6 py-3 font-bold"
-                    >
-                      Cancel
-                    </button>
-                  </div>
+                      <div className="mt-4 flex gap-2">
+                        <button
+                          onClick={() => setPostDraft(post)}
+                          className="clay-sm inline-flex items-center gap-1 rounded-lg bg-[#34d399]/20 px-3 py-1.5 text-xs font-bold text-[#6ee7b7]"
+                        >
+                          <Pencil className="size-3.5" /> Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete "${post.title}"?`)) removePost.mutate(post.id);
+                          }}
+                          className="clay-sm inline-flex items-center gap-1 rounded-lg bg-[#f43f5e]/20 px-3 py-1.5 text-xs font-bold text-[#fda4af]"
+                        >
+                          <Trash2 className="size-3.5" /> Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
+
+            {tab === "leaders" && (
+              <div className="admin-glass mt-8 rounded-3xl p-6 md:p-8">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                      Public site content
+                    </p>
+                    <h2 className="font-display text-2xl font-bold text-white">Club leadership</h2>
+                  </div>
+                  {!leaderDraft && (
+                    <button
+                      onClick={() =>
+                        setLeaderDraft({
+                          ...blankLeader,
+                          display_order: Math.max(leaders.length + 1, 1),
+                        })
+                      }
+                      className="clay-sm flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-5 py-2.5 text-sm font-bold text-white shadow-[0_10px_30px_-14px_rgba(46,107,255,0.55)]"
+                    >
+                      <FilePlus2 className="size-4" />
+                      Add leader
+                    </button>
+                  )}
+                </div>
+
+                {leaderDraft && (
+                  <form
+                    className="mt-6 grid gap-4 rounded-2xl border border-white/10 bg-black/20 p-5 sm:grid-cols-2"
+                    onSubmit={submitLeader}
+                  >
+                    <div className="sm:col-span-2">
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Photo <span className="text-[#fda4af]">*</span>
+                      </label>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-4">
+                        <div className="size-24 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+                          {leaderDraft.image_url ? (
+                            <img
+                              src={leaderDraft.image_url}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="grid h-full w-full place-items-center text-[#94a3c8]">
+                              <ImagePlus className="size-8" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-white/10">
+                            <ImagePlus className="size-4" />
+                            {leaderDraft.image_url ? "Replace photo" : "Upload photo"}
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              className="sr-only"
+                              onChange={handleLeaderPhoto}
+                              disabled={uploadingPhoto}
+                            />
+                          </label>
+                          <span className="text-xs font-semibold text-[#94a3c8]">
+                            {uploadingPhoto ? "Uploading…" : "PNG, JPG or WebP · max 5 MB"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Name <span className="text-[#fda4af]">*</span>
+                      </label>
+                      <input
+                        required
+                        className={fieldClass}
+                        value={leaderDraft.name}
+                        onChange={(e) => setLeaderDraft({ ...leaderDraft, name: e.target.value })}
+                        placeholder="Yasmine Boudiaf"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Position <span className="text-[#fda4af]">*</span>
+                      </label>
+                      <input
+                        required
+                        className={fieldClass}
+                        value={leaderDraft.position}
+                        onChange={(e) =>
+                          setLeaderDraft({ ...leaderDraft, position: e.target.value })
+                        }
+                        placeholder="Media Leader"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Short bio (optional)
+                      </label>
+                      <textarea
+                        rows={3}
+                        maxLength={MAX_LEADER_DESCRIPTION}
+                        className={fieldClass}
+                        value={leaderDraft.description}
+                        onChange={(e) =>
+                          setLeaderDraft({ ...leaderDraft, description: e.target.value })
+                        }
+                        placeholder="A one-line intro shown on the homepage carousel."
+                      />
+                      <p className="mt-1 text-right text-xs font-semibold text-[#94a3c8]">
+                        {leaderDraft.description.length}/{MAX_LEADER_DESCRIPTION}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-3 sm:col-span-2">
+                      <button
+                        type="submit"
+                        disabled={saveLeader.isPending || uploadingPhoto}
+                        className="clay-md inline-flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(46,107,255,0.7)] disabled:opacity-70"
+                      >
+                        <Save className="size-4" />
+                        {saveLeader.isPending
+                          ? "Saving…"
+                          : leaderDraft.id
+                            ? "Save changes"
+                            : "Add leader"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLeaderDraft(null)}
+                        className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {leaders.length === 0 ? (
+                  <p className="mt-6 font-semibold text-[#94a3c8]">
+                    No leaders yet — add your first team member above.
+                  </p>
+                ) : (
+                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                    {leaders.map((leader, index) => (
+                      <div
+                        key={leader.id}
+                        className="flex items-start gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
+                      >
+                        <div className="size-16 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/5">
+                          {leader.image_url ? (
+                            <img
+                              src={leader.image_url}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="grid h-full w-full place-items-center text-xs font-extrabold text-[#6fa0ff]">
+                              {initials(leader.name)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate font-display text-lg font-bold text-white">
+                              {leader.name}
+                            </p>
+                            <span className="rounded-full border border-[#2e6bff]/40 bg-[#2e6bff]/15 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                              #{index + 1}
+                            </span>
+                          </div>
+                          <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                            {leader.position}
+                          </p>
+                          {leader.description && (
+                            <p className="mt-1 line-clamp-2 text-sm font-semibold text-[#94a3c8]">
+                              {leader.description}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 flex-col gap-1">
+                          <button
+                            onClick={() => moveLeader(index, -1)}
+                            disabled={index === 0}
+                            aria-label={`Move ${leader.name} up`}
+                            className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-[#94a3c8] transition-colors hover:text-white disabled:opacity-40"
+                          >
+                            <ArrowUp className="size-4" />
+                          </button>
+                          <button
+                            onClick={() => moveLeader(index, 1)}
+                            disabled={index === leaders.length - 1}
+                            aria-label={`Move ${leader.name} down`}
+                            className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-[#94a3c8] transition-colors hover:text-white disabled:opacity-40"
+                          >
+                            <ArrowDown className="size-4" />
+                          </button>
+                        </div>
+                        <div className="flex shrink-0 flex-col gap-1">
+                          <button
+                            onClick={() => setLeaderDraft(leader)}
+                            aria-label={`Edit ${leader.name}`}
+                            className="rounded-lg bg-[#34d399]/20 p-1.5 text-[#6ee7b7] transition-colors hover:bg-[#34d399]/30"
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Remove "${leader.name}" from the team?`)) {
+                                removeLeader.mutate(leader.id);
+                              }
+                            }}
+                            aria-label={`Remove ${leader.name}`}
+                            className="rounded-lg bg-[#f43f5e]/20 p-1.5 text-[#fda4af] transition-colors hover:bg-[#f43f5e]/30"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === "team" && (
+              <div className="admin-glass mt-8 rounded-3xl p-6 md:p-8">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                      Public site content
+                    </p>
+                    <h2 className="font-display text-2xl font-bold text-white">
+                      Mentors &amp; community
+                    </h2>
+                  </div>
+                  {!teamDraft && (
+                    <button
+                      onClick={() =>
+                        setTeamDraft({
+                          ...blankTeam,
+                          display_order: Math.max(team.length + 1, 1),
+                        })
+                      }
+                      className="clay-sm flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-5 py-2.5 text-sm font-bold text-white shadow-[0_10px_30px_-14px_rgba(46,107,255,0.55)]"
+                    >
+                      <FilePlus2 className="size-4" />
+                      Add team member
+                    </button>
+                  )}
+                </div>
+
+                {teamDraft && (
+                  <form
+                    className="mt-6 grid gap-4 rounded-2xl border border-white/10 bg-black/20 p-5 sm:grid-cols-2"
+                    onSubmit={submitTeam}
+                  >
+                    <div className="sm:col-span-2">
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Photo <span className="text-[#fda4af]">*</span>
+                      </label>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-4">
+                        <div className="size-24 overflow-hidden rounded-full border border-white/10 bg-white/5">
+                          {teamDraft.avatar_url ? (
+                            <img
+                              src={teamDraft.avatar_url}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="grid h-full w-full place-items-center text-[#94a3c8]">
+                              <ImagePlus className="size-8" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-white/10">
+                            <ImagePlus className="size-4" />
+                            {teamDraft.avatar_url ? "Replace photo" : "Upload photo"}
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              className="sr-only"
+                              onChange={handleTeamPhoto}
+                              disabled={teamUploading}
+                            />
+                          </label>
+                          <span className="text-xs font-semibold text-[#94a3c8]">
+                            {teamUploading ? "Uploading…" : "PNG, JPG or WebP · max 5 MB"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Name <span className="text-[#fda4af]">*</span>
+                      </label>
+                      <input
+                        required
+                        className={fieldClass}
+                        value={teamDraft.name}
+                        onChange={(e) => setTeamDraft({ ...teamDraft, name: e.target.value })}
+                        placeholder="Pr. Amine Cherif"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Role title <span className="text-[#fda4af]">*</span>
+                      </label>
+                      <input
+                        required
+                        className={fieldClass}
+                        value={teamDraft.role_title}
+                        onChange={(e) => setTeamDraft({ ...teamDraft, role_title: e.target.value })}
+                        placeholder="Faculty Supervisor"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Category <span className="text-[#fda4af]">*</span>
+                      </label>
+                      <select
+                        className={fieldClass}
+                        value={teamDraft.category}
+                        onChange={(e) =>
+                          setTeamDraft({
+                            ...teamDraft,
+                            category: e.target.value as AdminTeamMember["category"],
+                          })
+                        }
+                      >
+                        {TEAM_CATEGORIES.map((entry) => (
+                          <option key={entry.value} value={entry.value}>
+                            {entry.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        LinkedIn URL (optional)
+                      </label>
+                      <input
+                        type="url"
+                        className={fieldClass}
+                        value={teamDraft.linkedin_url ?? ""}
+                        onChange={(e) =>
+                          setTeamDraft({ ...teamDraft, linkedin_url: e.target.value })
+                        }
+                        placeholder="https://www.linkedin.com/in/name"
+                      />
+                      <p className="mt-1 text-xs font-semibold text-[#94a3c8]">
+                        A valid linkedin.com profile link is required to show the icon.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-3 sm:col-span-2">
+                      <button
+                        type="submit"
+                        disabled={saveTeamMember.isPending || teamUploading}
+                        className="clay-md inline-flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(46,107,255,0.7)] disabled:opacity-70"
+                      >
+                        <Save className="size-4" />
+                        {saveTeamMember.isPending
+                          ? "Saving…"
+                          : teamDraft.id
+                            ? "Save changes"
+                            : "Add team member"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTeamDraft(null)}
+                        className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {team.length === 0 ? (
+                  <p className="mt-6 font-semibold text-[#94a3c8]">
+                    No mentors yet — add your first team member above.
+                  </p>
+                ) : (
+                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                    {team.map((member, index) => (
+                      <div
+                        key={member.id}
+                        className="flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
+                      >
+                        <div className="size-16 shrink-0 overflow-hidden rounded-full border border-white/10 bg-white/5">
+                          {member.avatar_url ? (
+                            <img
+                              src={member.avatar_url}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="grid h-full w-full place-items-center text-xs font-extrabold text-[#6fa0ff]">
+                              {initials(member.name)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate font-display text-lg font-bold text-white">
+                              {member.name}
+                            </p>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold tracking-wide uppercase ${teamCategoryTint[member.category]}`}
+                            >
+                              #{index + 1} · {teamCategoryLabel(member.category)}
+                            </span>
+                          </div>
+                          <p className="truncate text-sm font-bold text-[#6fa0ff]">
+                            {member.role_title}
+                          </p>
+                          {member.linkedin_url && (
+                            <p className="mt-0.5 truncate text-xs font-semibold text-[#94a3c8]">
+                              LinkedIn profile linked
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 flex-col gap-1">
+                          <button
+                            onClick={() => moveTeamMember(index, -1)}
+                            disabled={index === 0}
+                            aria-label={`Move ${member.name} up`}
+                            className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-[#94a3c8] transition-colors hover:text-white disabled:opacity-40"
+                          >
+                            <ArrowUp className="size-4" />
+                          </button>
+                          <button
+                            onClick={() => moveTeamMember(index, 1)}
+                            disabled={index === team.length - 1}
+                            aria-label={`Move ${member.name} down`}
+                            className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-[#94a3c8] transition-colors hover:text-white disabled:opacity-40"
+                          >
+                            <ArrowDown className="size-4" />
+                          </button>
+                        </div>
+                        <div className="flex shrink-0 flex-col gap-1">
+                          <button
+                            onClick={() => setTeamDraft(member)}
+                            aria-label={`Edit ${member.name}`}
+                            className="rounded-lg bg-[#34d399]/20 p-1.5 text-[#6ee7b7] transition-colors hover:bg-[#34d399]/30"
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Remove "${member.name}" from the community section?`)) {
+                                removeTeamMember.mutate(member.id);
+                              }
+                            }}
+                            aria-label={`Remove ${member.name}`}
+                            className="rounded-lg bg-[#f43f5e]/20 p-1.5 text-[#fda4af] transition-colors hover:bg-[#f43f5e]/30"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === "admins" &&
+              (isOwner ? (
+                <div className="admin-glass mt-8 rounded-3xl p-6 md:p-8">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="font-display text-xl font-bold text-white">
+                        Admins &amp; permissions
+                      </h2>
+                      <p className="mt-1 max-w-xl text-sm font-semibold text-[#94a3c8]">
+                        Switch off a section to restrict an admin. Every section starts enabled
+                        (full access); turning one off hides it from that admin and blocks the
+                        matching actions server-side.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-[#2e6bff]/40 bg-[#2e6bff]/15 px-3 py-1.5 text-[11px] font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                      Owner only
+                    </span>
+                  </div>
+
+                  <div className="mt-6">
+                    <div className="grid grid-cols-[1fr_repeat(6,minmax(4.5rem,1fr))_2.5rem] items-center gap-2 border-b border-white/10 pb-2 text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                      <span>Admin</span>
+                      {ADMIN_SECTIONS.map((section) => (
+                        <span key={section} className="text-center">
+                          {adminSectionLabel(section)}
+                        </span>
+                      ))}
+                      <span className="text-center">Active</span>
+                    </div>
+
+                    {admins.length === 0 && (
+                      <p className="py-8 text-center font-semibold text-[#94a3c8]">
+                        No approved admins yet.
+                      </p>
+                    )}
+
+                    {admins.map((admin) => {
+                      const isOwnerRow = admin.email === session?.email;
+                      const disabled = Boolean(admin.disabled_at);
+                      return (
+                        <div
+                          key={admin.user_id}
+                          className={`grid grid-cols-[1fr_repeat(6,minmax(4.5rem,1fr))_2.5rem] items-center gap-2 border-b border-white/10 py-3.5 ${
+                            disabled ? "opacity-60" : ""
+                          }`}
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <Avatar className="size-9 shrink-0">
+                              <AvatarImage src={admin.avatar_url ?? undefined} alt="" />
+                              <AvatarFallback className="bg-[#2e6bff]/25 text-xs font-bold text-white">
+                                {avatarFallback(admin.display_name, admin.email)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                              <p className="truncate font-bold text-white">
+                                {admin.display_name || admin.email || "Admin"}
+                                {isOwnerRow && (
+                                  <span className="ml-2 rounded-full bg-[#fcd34d]/15 px-2 py-0.5 text-[10px] font-extrabold text-[#fcd34d] uppercase">
+                                    You
+                                  </span>
+                                )}
+                              </p>
+                              <p className="truncate text-[11px] font-semibold text-[#94a3c8]">
+                                {admin.email}
+                                {admin.department && (
+                                  <span className="text-[#6fa0ff]"> · {admin.department}</span>
+                                )}
+                                {admin.level && <span> · {admin.level}</span>}
+                                {admin.admin_role && (
+                                  <span className="text-[#6fa0ff]">
+                                    {" "}
+                                    · {prettyRole(admin.admin_role)}
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+
+                          {ADMIN_SECTIONS.map((section) => {
+                            const allowed = !admin.restricted.includes(section);
+                            return (
+                              <div key={section} className="flex justify-center">
+                                <Switch
+                                  checked={allowed}
+                                  disabled={isOwnerRow || toggleSection.isPending}
+                                  aria-label={`${adminSectionLabel(section)} access for ${
+                                    admin.display_name || admin.email
+                                  }`}
+                                  onCheckedChange={() =>
+                                    toggleSection.mutate({
+                                      adminId: admin.user_id,
+                                      section,
+                                      allowed: !allowed,
+                                    })
+                                  }
+                                  className="data-[state=checked]:bg-[#2e6bff]"
+                                />
+                              </div>
+                            );
+                          })}
+
+                          <div className="flex justify-center">
+                            <Switch
+                              checked={!disabled}
+                              disabled={isOwnerRow || toggleDisabled.isPending}
+                              aria-label={`${disabled ? "Re-enable" : "Disable"} ${
+                                admin.display_name || admin.email
+                              }`}
+                              onCheckedChange={(next) => {
+                                if (next) {
+                                  toggleDisabled.mutate({
+                                    adminId: admin.user_id,
+                                    disabled: false,
+                                  });
+                                } else {
+                                  setDisableTarget(admin);
+                                }
+                              }}
+                              className="data-[state=checked]:bg-[#34d399]"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <NoAccess label="the admins page" />
+              ))}
+
+            {tab === "registrations" &&
+              (canAccess("registrations") ? (
+                <div className="admin-glass mt-8 rounded-3xl p-6 md:p-8">
+                  <AdminRegistrations />
+                </div>
+              ) : (
+                <NoAccess label="registrations" />
+              ))}
           </div>
+        </main>
+
+        {managedMember && (
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              onClick={() => setManageId(null)}
+            />
+            <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-white/10 bg-[#081020] shadow-2xl">
+              <div className="flex items-start justify-between gap-3 border-b border-white/10 p-6">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="grid size-12 shrink-0 place-items-center rounded-2xl border border-[#2e6bff]/40 bg-[#2e6bff]/15 text-sm font-extrabold text-[#6fa0ff]">
+                    {initials(managedMember.full_name) || "?"}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-display text-lg font-bold text-white">
+                      {managedMember.full_name}
+                    </p>
+                    {managedMember.admin_role && (
+                      <p className="text-[11px] font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                        {ROLE_LABELS[managedMember.admin_role] ?? managedMember.admin_role}
+                      </p>
+                    )}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      {isBlocked(managedMember) ? (
+                        <span className="inline-block rounded-full bg-[#f43f5e]/20 px-2.5 py-0.5 text-[10px] font-extrabold text-[#fda4af] uppercase">
+                          Blocked until{" "}
+                          {new Date(managedMember.blocked_until as string).toLocaleDateString(
+                            "en-GB",
+                          )}
+                        </span>
+                      ) : (
+                        <span
+                          className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${
+                            managedMember.status === "active"
+                              ? "bg-[#34d399] text-[#04121a]"
+                              : "bg-[#f59e0b]/20 text-[#fcd34d]"
+                          }`}
+                        >
+                          {managedMember.status}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setManageId(null)}
+                  aria-label="Close member panel"
+                  className="rounded-xl border border-white/10 bg-white/5 p-2 text-[#94a3c8] transition-colors hover:text-white"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6">
+                <h3 className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                  Details
+                </h3>
+                <div className="mt-3 grid gap-x-6 gap-y-4 text-sm">
+                  <Detail label="Email" value={managedMember.email} />
+                  <Detail label="Phone" value={managedMember.phone} />
+                  <Detail
+                    label="Department"
+                    value={
+                      managedMember.speciality
+                        ? `${managedMember.department} · ${managedMember.speciality}`
+                        : managedMember.department
+                    }
+                  />
+                  <Detail label="Level / school year" value={managedMember.level} />
+                  {managedMember.age !== null && (
+                    <Detail label="Age" value={String(managedMember.age)} />
+                  )}
+                  <Detail
+                    label="Joined"
+                    value={new Date(managedMember.created_at).toLocaleString("en-GB")}
+                  />
+                </div>
+
+                <h3 className="mt-8 text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                  Documents on file
+                </h3>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <MemberDocumentButton
+                    label="School certificate"
+                    memberId={managedMember.id}
+                    document="school_certificate"
+                    present={Boolean(managedMember.school_certificate_url)}
+                  />
+                  <MemberDocumentButton
+                    label="Identification card"
+                    memberId={managedMember.id}
+                    document="identity_card"
+                    present={Boolean(managedMember.identity_card_url)}
+                  />
+                </div>
+                {!managedMember.school_certificate_url && !managedMember.identity_card_url && (
+                  <p className="mt-3 text-xs font-semibold text-[#64748b]">
+                    No documents on file — this member signed up before uploads, or was added
+                    manually.
+                  </p>
+                )}
+
+                <h3 className="mt-8 text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                  Actions
+                </h3>
+                <div className="mt-3 grid gap-2.5">
+                  <PanelAction
+                    onClick={() => setEditing(managedMember)}
+                    className="border-[#f59e0b]/30 bg-[#f59e0b]/10 text-[#fcd34d] hover:bg-[#f59e0b]/20"
+                  >
+                    <Pencil className="size-4" /> Edit details
+                  </PanelAction>
+                  {isBlocked(managedMember) ? (
+                    <PanelAction
+                      onClick={() => setBlockTarget(managedMember)}
+                      className="border-[#34d399]/30 bg-[#34d399]/10 text-[#6ee7b7] hover:bg-[#34d399]/20"
+                    >
+                      <UserCheck className="size-4" /> Unblock
+                    </PanelAction>
+                  ) : (
+                    <PanelAction
+                      onClick={() => {
+                        setBlockOption("1w");
+                        setCustomUntil("");
+                        setBlockTarget(managedMember);
+                      }}
+                      className="border-[#f43f5e]/30 bg-[#f43f5e]/10 text-[#fda4af] hover:bg-[#f43f5e]/20"
+                    >
+                      <Ban className="size-4" /> Block
+                    </PanelAction>
+                  )}
+                  <PanelAction
+                    onClick={() => setRemoveConfirm(managedMember)}
+                    className="border-[#f43f5e]/40 bg-[#f43f5e]/15 text-[#fda4af] hover:bg-[#f43f5e]/30"
+                  >
+                    <Trash2 className="size-4" /> Remove member
+                  </PanelAction>
+                </div>
+              </div>
+            </aside>
+          </>
         )}
 
-        {tab === "events" && (
-          <div className="clay-lg mt-8 rounded-3xl bg-card p-8 md:p-10">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-extrabold tracking-wide text-brand uppercase">
-                  Home page content
-                </p>
-                <h2 className="font-display text-2xl font-bold">Events &amp; news</h2>
-              </div>
-              <button
-                onClick={() => setPostDraft({ ...blankPost })}
-                className="clay-sm rounded-2xl bg-brand px-5 py-2.5 text-sm font-bold text-primary-foreground"
-              >
-                New post
-              </button>
-            </div>
-
-            {postDraft && (
+        {editing && (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-5 py-10 backdrop-blur-sm">
+            <div className="admin-glass-strong w-full max-w-lg overflow-y-auto rounded-3xl p-7">
+              <h2 className="font-display text-xl font-bold text-white">Edit member</h2>
               <form
-                className="clay-sm mt-6 grid gap-4 rounded-2xl bg-background p-5 sm:grid-cols-2"
+                className="mt-5 grid gap-4 sm:grid-cols-2"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  savePost.mutate(postDraft);
+                  saveMember.mutate(editing);
                 }}
               >
                 <div className="sm:col-span-2">
                   <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                    Title
+                    Name
                   </label>
                   <input
-                    required
                     className={fieldClass}
-                    value={postDraft.title}
-                    onChange={(e) => setPostDraft({ ...postDraft, title: e.target.value })}
+                    value={editing.full_name}
+                    onChange={(e) => setEditing({ ...editing, full_name: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                    Type
+                    Age
+                  </label>
+                  <input
+                    type="number"
+                    className={fieldClass}
+                    value={editing.age ?? ""}
+                    onChange={(e) =>
+                      setEditing({
+                        ...editing,
+                        age: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                    Phone
+                  </label>
+                  <input
+                    className={fieldClass}
+                    value={editing.phone}
+                    onChange={(e) => setEditing({ ...editing, phone: e.target.value })}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    className={fieldClass}
+                    value={editing.email}
+                    onChange={(e) => setEditing({ ...editing, email: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                    Level
                   </label>
                   <select
                     className={fieldClass}
-                    value={postDraft.kind}
-                    onChange={(e) =>
-                      setPostDraft({ ...postDraft, kind: e.target.value as Post["kind"] })
-                    }
+                    value={editing.level}
+                    onChange={(e) => setEditing({ ...editing, level: e.target.value as Level })}
                   >
-                    <option value="event">event</option>
-                    <option value="news">news</option>
+                    {LEVELS.map((lvl) => (
+                      <option key={lvl}>{lvl}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                    Date &amp; time
+                    Status
                   </label>
-                  <input
-                    type="datetime-local"
+                  <select
                     className={fieldClass}
-                    value={postDraft.event_date ? postDraft.event_date.slice(0, 16) : ""}
-                    onChange={(e) =>
-                      setPostDraft({ ...postDraft, event_date: e.target.value || null })
-                    }
-                  />
+                    value={editing.status}
+                    onChange={(e) => setEditing({ ...editing, status: e.target.value })}
+                  >
+                    <option value="pending">pending</option>
+                    <option value="active">active</option>
+                  </select>
                 </div>
-                <div className="sm:col-span-2">
+                <div>
                   <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                    Place
+                    Speciality
                   </label>
-                  <input
+                  <select
                     className={fieldClass}
-                    placeholder="Amphi 3, Faculty of Electrical Engineering"
-                    value={postDraft.location ?? ""}
-                    onChange={(e) => setPostDraft({ ...postDraft, location: e.target.value })}
-                  />
+                    value={editing.speciality ?? ""}
+                    onChange={(e) => setEditing({ ...editing, speciality: e.target.value })}
+                  >
+                    <option value="">Not specified</option>
+                    {SPECIALITIES.map((item) => (
+                      <option key={item}>{item}</option>
+                    ))}
+                  </select>
                 </div>
-                <div className="sm:col-span-2">
+                <div>
                   <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                    Details
+                    Department
                   </label>
-                  <textarea
-                    rows={4}
+                  <select
                     className={fieldClass}
-                    value={postDraft.body}
-                    onChange={(e) => setPostDraft({ ...postDraft, body: e.target.value })}
-                  />
+                    value={editing.department}
+                    onChange={(e) => setEditing({ ...editing, department: e.target.value })}
+                  >
+                    {DEPARTMENTS.map((item) => (
+                      <option key={item}>{item}</option>
+                    ))}
+                  </select>
                 </div>
-                <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2">
-                  <input
-                    type="checkbox"
-                    checked={postDraft.published}
-                    onChange={(e) => setPostDraft({ ...postDraft, published: e.target.checked })}
-                  />
-                  Visible on the home page
-                </label>
-                <div className="flex gap-3 sm:col-span-2">
+                <div className="mt-2 flex gap-3 sm:col-span-2">
                   <button
                     type="submit"
-                    disabled={savePost.isPending}
-                    className="clay-md rounded-2xl bg-brand px-6 py-3 font-bold text-primary-foreground disabled:opacity-70"
+                    disabled={saveMember.isPending}
+                    className="clay-md rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(46,107,255,0.7)] disabled:opacity-70"
                   >
-                    Save post
+                    Save changes
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPostDraft(null)}
-                    className="clay-sm rounded-2xl bg-card px-6 py-3 font-bold"
+                    onClick={() => setEditing(null)}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
                   >
                     Cancel
                   </button>
                 </div>
               </form>
-            )}
-
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              {posts.length === 0 && (
-                <p className="font-semibold text-muted-foreground">
-                  No events or news yet — create your first post.
-                </p>
-              )}
-              {posts.map((post) => (
-                <div key={post.id} className="clay-sm rounded-2xl bg-background p-5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-brand/15 px-3 py-1 text-[11px] font-extrabold text-brand uppercase">
-                      {post.kind}
-                    </span>
-                    {!post.published && (
-                      <span className="rounded-full bg-blossom/20 px-3 py-1 text-[11px] font-extrabold text-blossom-foreground uppercase">
-                        hidden
-                      </span>
-                    )}
-                    {post.event_date && (
-                      <span className="text-xs font-bold text-muted-foreground">
-                        {new Date(post.event_date).toLocaleString("en-GB")}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-3 font-display text-lg font-bold">{post.title}</p>
-                  {post.location && (
-                    <p className="text-xs font-bold text-brand">📍 {post.location}</p>
-                  )}
-                  <p className="mt-2 line-clamp-3 text-sm font-semibold text-muted-foreground">
-                    {post.body}
-                  </p>
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      onClick={() => setPostDraft(post)}
-                      className="clay-sm rounded-lg bg-mint/25 px-3 py-1.5 text-xs font-bold text-mint-foreground"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (confirm(`Delete "${post.title}"?`)) removePost.mutate(post.id);
-                      }}
-                      className="clay-sm rounded-lg bg-blossom/20 px-3 py-1.5 text-xs font-bold text-blossom-foreground"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         )}
-      </div>
 
-      {editing && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 px-5 py-10">
-          <div className="clay-lg w-full max-w-lg overflow-y-auto rounded-3xl bg-card p-7">
-            <h2 className="font-display text-xl font-bold">Edit member</h2>
-            <form
-              className="mt-5 grid gap-4 sm:grid-cols-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                saveMember.mutate(editing);
-              }}
-            >
-              <div className="sm:col-span-2">
-                <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                  Name
-                </label>
-                <input
-                  className={fieldClass}
-                  value={editing.full_name}
-                  onChange={(e) => setEditing({ ...editing, full_name: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                  Age
-                </label>
-                <input
-                  type="number"
-                  className={fieldClass}
-                  value={editing.age}
-                  onChange={(e) => setEditing({ ...editing, age: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                  Phone
-                </label>
-                <input
-                  className={fieldClass}
-                  value={editing.phone}
-                  onChange={(e) => setEditing({ ...editing, phone: e.target.value })}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  className={fieldClass}
-                  value={editing.email}
-                  onChange={(e) => setEditing({ ...editing, email: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                  Level
-                </label>
-                <select
-                  className={fieldClass}
-                  value={editing.level}
-                  onChange={(e) => setEditing({ ...editing, level: e.target.value as Level })}
-                >
-                  {LEVELS.map((lvl) => (
-                    <option key={lvl}>{lvl}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                  Status
-                </label>
-                <select
-                  className={fieldClass}
-                  value={editing.status}
-                  onChange={(e) => setEditing({ ...editing, status: e.target.value })}
-                >
-                  <option value="pending">pending</option>
-                  <option value="active">active</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                  Speciality
-                </label>
-                <select
-                  className={fieldClass}
-                  value={editing.speciality}
-                  onChange={(e) => setEditing({ ...editing, speciality: e.target.value })}
-                >
-                  {SPECIALITIES.map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                  Department
-                </label>
-                <select
-                  className={fieldClass}
-                  value={editing.department}
-                  onChange={(e) => setEditing({ ...editing, department: e.target.value })}
-                >
-                  {DEPARTMENTS.map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="mt-2 flex gap-3 sm:col-span-2">
+        {blockTarget && (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-5 py-10 backdrop-blur-sm">
+            <div className="admin-glass-strong w-full max-w-md overflow-y-auto rounded-3xl p-7">
+              {isBlocked(blockTarget) ? (
+                <>
+                  <h2 className="font-display text-xl font-bold text-white">Unblock member</h2>
+                  <p className="mt-2 text-sm font-semibold text-[#94a3c8]">
+                    {blockTarget.full_name} is currently blocked until{" "}
+                    <span className="text-[#6ee7b7]">
+                      {new Date(blockTarget.blocked_until as string).toLocaleString("en-GB")}
+                    </span>
+                    . They will be able to join the club again as soon as you unblock them.
+                  </p>
+                  <div className="mt-6 flex gap-3">
+                    <button
+                      onClick={() => unblockMember.mutate(blockTarget.id)}
+                      disabled={unblockMember.isPending}
+                      className="clay-md rounded-2xl bg-[#34d399] px-6 py-3 font-bold text-[#04121a] shadow-[0_14px_38px_-16px_rgba(52,211,153,0.6)] disabled:opacity-70"
+                    >
+                      Unblock now
+                    </button>
+                    <button
+                      onClick={() => setBlockTarget(null)}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="font-display text-xl font-bold text-white">Block member</h2>
+                  <p className="mt-2 text-sm font-semibold text-[#94a3c8]">
+                    Blocking {blockTarget.full_name} will mark them as blocked in the club until the
+                    date you choose. This won't delete any of their data.
+                  </p>
+                  <div className="mt-5 grid grid-cols-2 gap-3">
+                    {(["1w", "2w", "1m", "3m"] as const).map((opt) => (
+                      <label
+                        key={opt}
+                        className="flex cursor-pointer items-center gap-2 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-bold text-white"
+                      >
+                        <input
+                          type="radio"
+                          name="block-duration"
+                          checked={blockOption === opt}
+                          onChange={() => setBlockOption(opt)}
+                        />
+                        {opt === "1w"
+                          ? "1 week"
+                          : opt === "2w"
+                            ? "2 weeks"
+                            : opt === "1m"
+                              ? "1 month"
+                              : "3 months"}
+                      </label>
+                    ))}
+                    <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-bold text-white">
+                      <input
+                        type="radio"
+                        name="block-duration"
+                        checked={blockOption === "custom"}
+                        onChange={() => setBlockOption("custom")}
+                      />
+                      Custom date
+                    </label>
+                    {blockOption === "custom" && (
+                      <input
+                        type="datetime-local"
+                        value={customUntil}
+                        onChange={(e) => setCustomUntil(e.target.value)}
+                        className={fieldClass}
+                      />
+                    )}
+                  </div>
+                  <div className="mt-6 flex gap-3">
+                    <button
+                      onClick={() => {
+                        const todayMs = Date.now();
+                        const ms = blockOption === "custom" ? null : BLOCK_PRESETS[blockOption];
+                        const until = ms
+                          ? new Date(todayMs + ms).toISOString()
+                          : new Date(customUntil).toISOString();
+                        blockMember.mutate({ id: blockTarget.id, until });
+                      }}
+                      disabled={blockMember.isPending || (blockOption === "custom" && !customUntil)}
+                      className="clay-md rounded-2xl bg-[#f43f5e] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(244,63,94,0.6)] disabled:opacity-70"
+                    >
+                      {blockMember.isPending ? "Blocking…" : "Block member"}
+                    </button>
+                    <button
+                      onClick={() => setBlockTarget(null)}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {removeConfirm && (
+          <div className="fixed inset-0 z-[60] grid place-items-center bg-black/60 px-5 py-10 backdrop-blur-sm">
+            <div className="admin-glass-strong w-full max-w-md rounded-3xl p-7">
+              <h2 className="font-display text-xl font-bold text-white">Remove member</h2>
+              <p className="mt-2 text-sm font-semibold text-[#94a3c8]">
+                Remove <span className="text-white">{removeConfirm.full_name}</span> from the club?
+                This deletes their member record and can't be undone.
+              </p>
+              <div className="mt-6 flex gap-3">
                 <button
-                  type="submit"
-                  disabled={saveMember.isPending}
-                  className="clay-md rounded-2xl bg-brand px-6 py-3 font-bold text-primary-foreground disabled:opacity-70"
+                  onClick={() => removeMember.mutate(removeConfirm.id)}
+                  disabled={removeMember.isPending}
+                  className="clay-md rounded-2xl bg-[#f43f5e] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(244,63,94,0.6)] disabled:opacity-70"
                 >
-                  Save changes
+                  {removeMember.isPending ? "Removing…" : "Remove member"}
                 </button>
                 <button
-                  type="button"
-                  onClick={() => setEditing(null)}
-                  className="clay-sm rounded-2xl bg-background px-6 py-3 font-bold"
+                  onClick={() => setRemoveConfirm(null)}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
                 >
                   Cancel
                 </button>
               </div>
-            </form>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {blockTarget && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 px-5 py-10">
-          <div className="clay-lg w-full max-w-md overflow-y-auto rounded-3xl bg-card p-7">
-            {isBlocked(blockTarget) ? (
-              <>
-                <h2 className="font-display text-xl font-bold">Unblock member</h2>
-                <p className="mt-2 text-sm font-semibold text-muted-foreground">
-                  {blockTarget.full_name} is currently blocked until{" "}
-                  <span className="text-blossom-foreground">
-                    {new Date(blockTarget.blocked_until as string).toLocaleString("en-GB")}
-                  </span>
-                  . They will be able to join the club again as soon as you unblock them.
-                </p>
-                <div className="mt-6 flex gap-3">
-                  <button
-                    onClick={() => unblockMember.mutate(blockTarget.id)}
-                    disabled={unblockMember.isPending}
-                    className="clay-md rounded-2xl bg-mint px-6 py-3 font-bold text-mint-foreground disabled:opacity-70"
-                  >
-                    Unblock now
-                  </button>
-                  <button
-                    onClick={() => setBlockTarget(null)}
-                    className="clay-sm rounded-2xl bg-background px-6 py-3 font-bold"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h2 className="font-display text-xl font-bold">Block member</h2>
-                <p className="mt-2 text-sm font-semibold text-muted-foreground">
-                  Blocking {blockTarget.full_name} will mark them as blocked in the club until the
-                  date you choose. This won't delete any of their data.
-                </p>
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  {(["1w", "2w", "1m", "3m"] as const).map((opt) => (
-                    <label
-                      key={opt}
-                      className="clay-sm flex cursor-pointer items-center gap-2 rounded-2xl bg-background px-4 py-3 text-sm font-bold"
-                    >
+        {profileOpen && (
+          <Dialog open onOpenChange={(open) => !open && setProfileOpen(false)}>
+            <DialogContent className="border-white/10 bg-[#0a1226] text-white">
+              <DialogHeader>
+                <DialogTitle className="text-white">My profile</DialogTitle>
+                <DialogDescription className="font-semibold text-[#94a3c8]">
+                  Set the name and photo shown to other club officers.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={submitProfile} className="space-y-5">
+                <div className="flex flex-wrap items-center gap-4">
+                  <Avatar className="size-16">
+                    <AvatarImage src={profileAvatar ?? undefined} alt="" />
+                    <AvatarFallback className="bg-[#2e6bff]/25 font-display text-xl font-bold text-white">
+                      {avatarFallback(profileName, session?.email ?? null)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                      Profile photo
+                    </p>
+                    <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-[#2e6bff]/40 bg-[#2e6bff]/15 px-4 py-2.5 text-sm font-bold text-[#6fa0ff] transition-colors hover:bg-[#2e6bff]/25">
+                      <ImagePlus className="size-4" />
+                      {profileUploading ? "Uploading…" : "Upload new photo"}
                       <input
-                        type="radio"
-                        name="block-duration"
-                        checked={blockOption === opt}
-                        onChange={() => setBlockOption(opt)}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="sr-only"
+                        onChange={handleProfilePhoto}
                       />
-                      {opt === "1w"
-                        ? "1 week"
-                        : opt === "2w"
-                          ? "2 weeks"
-                          : opt === "1m"
-                            ? "1 month"
-                            : "3 months"}
                     </label>
-                  ))}
-                  <label className="clay-sm flex cursor-pointer items-center gap-2 rounded-2xl bg-background px-4 py-3 text-sm font-bold">
-                    <input
-                      type="radio"
-                      name="block-duration"
-                      checked={blockOption === "custom"}
-                      onChange={() => setBlockOption("custom")}
-                    />
-                    Custom date
-                  </label>
-                  {blockOption === "custom" && (
-                    <input
-                      type="datetime-local"
-                      value={customUntil}
-                      onChange={(e) => setCustomUntil(e.target.value)}
-                      className={fieldClass}
-                    />
-                  )}
+                    <p className="mt-1.5 text-[11px] font-semibold text-[#64748b]">
+                      PNG, JPG or WebP · max 5 MB
+                    </p>
+                  </div>
                 </div>
-                <div className="mt-6 flex gap-3">
-                  <button
-                    onClick={() => {
-                      const todayMs = Date.now();
-                      const ms = blockOption === "custom" ? null : BLOCK_PRESETS[blockOption];
-                      const until = ms
-                        ? new Date(todayMs + ms).toISOString()
-                        : new Date(customUntil).toISOString();
-                      blockMember.mutate({ id: blockTarget.id, until });
-                    }}
-                    disabled={blockMember.isPending || (blockOption === "custom" && !customUntil)}
-                    className="clay-md rounded-2xl bg-blossom px-6 py-3 font-bold text-blossom-foreground disabled:opacity-70"
+
+                <div>
+                  <label
+                    htmlFor="profile-display-name"
+                    className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase"
                   >
-                    {blockMember.isPending ? "Blocking…" : "Block member"}
-                  </button>
+                    Display name
+                  </label>
+                  <input
+                    id="profile-display-name"
+                    className={`${fieldClass} mt-1.5`}
+                    value={profileName}
+                    maxLength={60}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    placeholder={session?.email ?? "Your name"}
+                  />
+                </div>
+
+                <DialogFooter>
                   <button
-                    onClick={() => setBlockTarget(null)}
-                    className="clay-sm rounded-2xl bg-background px-6 py-3 font-bold"
+                    type="button"
+                    onClick={() => setProfileOpen(false)}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
                   >
                     Cancel
                   </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+                  <button
+                    type="submit"
+                    disabled={saveProfile.isPending}
+                    className="clay-md rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(46,107,255,0.7)] disabled:opacity-70"
+                  >
+                    {saveProfile.isPending ? "Saving…" : "Save profile"}
+                  </button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {disableTarget && (
+          <Dialog open onOpenChange={(open) => !open && setDisableTarget(null)}>
+            <DialogContent className="border-white/10 bg-[#0a1226] text-white">
+              <DialogHeader>
+                <DialogTitle className="text-white">
+                  Disable {disableTarget.display_name || disableTarget.email}?
+                </DialogTitle>
+                <DialogDescription className="font-semibold text-[#94a3c8]">
+                  They keep their profile but immediately lose all admin access until you re-enable
+                  them. Their section permissions are kept.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <button
+                  onClick={() => setDisableTarget(null)}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() =>
+                    toggleDisabled.mutate({ adminId: disableTarget.user_id, disabled: true })
+                  }
+                  disabled={toggleDisabled.isPending}
+                  className="clay-md rounded-2xl bg-[#f43f5e] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(244,63,94,0.6)] disabled:opacity-70"
+                >
+                  {toggleDisabled.isPending ? "Disabling…" : "Disable access"}
+                </button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
+    </ShadTooltipProvider>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">{label}</p>
+      <p className="mt-0.5 font-semibold break-words text-white">{value || "—"}</p>
     </div>
+  );
+}
+
+function PanelAction({
+  onClick,
+  className,
+  children,
+}: {
+  onClick: () => void;
+  className: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold transition-colors ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function MemberDocumentButton({
+  label,
+  memberId,
+  document,
+  present,
+}: {
+  label: string;
+  memberId: string;
+  document: MemberDocumentKey;
+  present: boolean;
+}) {
+  const view = useMutation({
+    mutationFn: () => getMemberDocumentUrl({ data: { memberId, document } }),
+    onSuccess: (url) => {
+      window.open(url, "_blank", "noopener,noreferrer");
+    },
+    onError: (error) => toast.error(error.message ?? "Could not open the document"),
+  });
+
+  if (!present) {
+    return (
+      <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-[#64748b]">
+        {label}: not provided
+      </span>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => view.mutate()}
+      disabled={view.isPending}
+      className="inline-flex items-center gap-1.5 rounded-lg bg-[#2e6bff]/20 px-3 py-2 text-xs font-bold text-[#6fa0ff] transition-colors hover:bg-[#2e6bff]/30 disabled:opacity-70"
+    >
+      <Eye className="size-3.5" />
+      {view.isPending ? "Loading…" : label}
+    </button>
   );
 }

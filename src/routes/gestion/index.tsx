@@ -136,9 +136,9 @@ function GestionPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-5 py-16">
-      <div className="clay-lg relative w-full max-w-md overflow-hidden rounded-3xl bg-card p-8">
-        <div className="clay-sm animate-floaty absolute -top-8 -right-6 size-24 rounded-full bg-lemon" />
+    <div className="admin-theme flex min-h-screen items-center justify-center px-5 py-16">
+      <div className="admin-glass relative w-full max-w-md overflow-hidden rounded-3xl p-8">
+        <div className="absolute -top-10 -right-8 size-32 rounded-full bg-[#2e6bff]/40 blur-2xl" />
         <div className="relative">
           <Link to="/" className="text-xs font-extrabold tracking-wide text-brand-deep uppercase">
             ← Back to Wavez Club
@@ -154,7 +154,7 @@ function GestionPage() {
           </p>
 
           {requestSent ? (
-            <div className="clay-sm mt-6 rounded-2xl bg-mint/30 p-5 text-sm font-semibold text-mint-foreground">
+            <div className="mt-6 rounded-2xl border border-[#34d399]/25 bg-[#34d399]/15 p-5 text-sm font-semibold text-[#6ee7b7]">
               <p className="font-display text-lg font-bold">
                 Your request has been sent for review.
               </p>
@@ -164,15 +164,21 @@ function GestionPage() {
                 review it shortly — an invitation will arrive at{" "}
                 <span className="font-bold">{requestEmail}</span> if your request is approved.
               </p>
+              {OWNER_EMAIL && (
+                <p className="mt-3 border-t border-[#34d399]/20 pt-3 text-xs text-[#a7f3d0]">
+                  Questions? Contact the club owner at{" "}
+                  <span className="font-bold">{OWNER_EMAIL}</span>.
+                </p>
+              )}
               <button
                 onClick={() => setRequestSent(false)}
-                className="mt-4 text-xs font-extrabold tracking-wide text-mint-foreground underline"
+                className="mt-4 text-xs font-extrabold tracking-wide text-[#6ee7b7] underline"
               >
                 Submit another request
               </button>
             </div>
           ) : checkEmail ? (
-            <div className="clay-sm mt-6 rounded-2xl bg-mint/30 p-5 text-sm font-semibold text-mint-foreground">
+            <div className="mt-6 rounded-2xl border border-[#34d399]/25 bg-[#34d399]/15 p-5 text-sm font-semibold text-[#6ee7b7]">
               Check your inbox for the confirmation link, then come back and sign in. You will be
               set up as the club owner automatically.
             </div>
@@ -258,7 +264,7 @@ function GestionPage() {
                   <button
                     type="submit"
                     disabled={busy}
-                    className="clay-md w-full rounded-2xl bg-brand px-6 py-3.5 font-bold text-primary-foreground disabled:opacity-70"
+                    className="clay-md w-full rounded-2xl bg-[#2e6bff] px-6 py-3.5 font-bold text-white shadow-[0_16px_40px_-16px_rgba(46,107,255,0.7)] disabled:opacity-70"
                   >
                     {busy ? "Sending…" : "Send request for review"}
                   </button>
@@ -302,7 +308,7 @@ function GestionPage() {
                   <button
                     type="submit"
                     disabled={busy}
-                    className="clay-md w-full rounded-2xl bg-brand px-6 py-3.5 font-bold text-primary-foreground disabled:opacity-70"
+                    className="clay-md w-full rounded-2xl bg-[#2e6bff] px-6 py-3.5 font-bold text-white shadow-[0_16px_40px_-16px_rgba(46,107,255,0.7)] disabled:opacity-70"
                   >
                     {busy ? "Please wait…" : mode === "signin" ? "Log in" : "Create account"}
                   </button>

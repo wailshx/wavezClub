@@ -36,6 +36,76 @@
       "when": 1789586200000,
       "tag": "0004_admin_email_drafts",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789691891837,
+      "tag": "0005_create_leaders",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789862400000,
+      "tag": "0006_registration_campaigns",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789868400000,
+      "tag": "0007_fix_registration_insert_policy",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789888800000,
+      "tag": "0008_campaign_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790000000000,
+      "tag": "0009_create_team_members",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790088800000,
+      "tag": "0010_registration_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790170000000,
+      "tag": "0011_nullable_member_speciality",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790200000000,
+      "tag": "0012_registrations_check_in",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790200000200,
+      "tag": "0013_member_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790200000400,
+      "tag": "0014_admin_profiles_and_permissions",
+      "breakpoints": true
     }
   ]
 }
