@@ -74,6 +74,7 @@ type UserRoleRow = {
   display_name: string | null;
   avatar_url: string | null;
   disabled_at: string | null;
+  created_at: string | null;
 };
 
 type MemberInfoRow = { email: string; department: string | null; level: string | null };
@@ -187,6 +188,8 @@ export type AdminRow = {
   disabled_at: string | null;
   department: string | null;
   level: string | null;
+  /** When the admin was approved (user_roles.created_at). */
+  created_at: string | null;
   /** Sections the owner has explicitly restricted (granted=false rows). */
   restricted: AdminSection[];
 };
@@ -199,7 +202,7 @@ export const listAdmins = createServerFn({ method: "GET" })
     const supabaseAdmin = await getSupabaseAdmin();
 
     const { data: roleRows } = await userRolesTable(supabaseAdmin)
-      .select("user_id, admin_role, display_name, avatar_url, disabled_at")
+      .select("user_id, admin_role, display_name, avatar_url, disabled_at, created_at")
       .eq("role", "admin");
     const { data: permRows } = await permissionsTable(supabaseAdmin).select(
       "user_id, section, granted",
@@ -249,6 +252,7 @@ export const listAdmins = createServerFn({ method: "GET" })
         disabled_at: row.disabled_at,
         department: member?.department ?? null,
         level: member?.level ?? null,
+        created_at: row.created_at ?? null,
         restricted: restrictedByUser.get(userId) ?? [],
       };
     });

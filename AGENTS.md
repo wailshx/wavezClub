@@ -20,6 +20,7 @@ Until the Supabase CLI is linked to this project (`supabase link --project-ref p
 | `0002_admin_requests_and_roles.sql` | `admin_role` enum, `admin_requests`, rate-limit trigger |
 | `0003_member_blocking.sql` | `members.blocked_until` |
 | `0004_admin_email_drafts.sql` | `admin_email_drafts` table + RLS |
+| `0015_dashboard_stats.sql` | `get_dashboard_stats` SECURITY DEFINER RPC (SQL-side dashboard aggregation) + aggregate-support indexes |
 
 ## Verification
 

@@ -7,6 +7,8 @@ import {
   Cell,
   LineChart,
   Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   BarChart,
@@ -14,11 +16,13 @@ import {
   ResponsiveContainer,
   Tooltip,
   Legend,
+  CartesianGrid,
 } from "recharts";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import {
   ArrowDown,
+  ArrowRight,
   ArrowUp,
   Award,
   Ban,
@@ -117,6 +121,11 @@ import {
   type AdminRow,
   type AdminSection,
 } from "@/lib/admin-admins-api";
+import {
+  getDashboardStats,
+  type DashboardCampaignFunnel,
+  type DashboardStats,
+} from "@/lib/admin-dashboard-api";
 
 export const Route = createFileRoute("/_authenticated/gestion/admin")({
   head: () => ({
@@ -237,6 +246,85 @@ function NoAccess({ label }: { label: string }) {
   );
 }
 
+function EmptyHint({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-10 text-center font-semibold text-[#94a3c8]">
+      {children}
+    </div>
+  );
+}
+
+function KpiCard({
+  label,
+  value,
+  tone = "#6fa0ff",
+  sub,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  tone?: string;
+  sub?: ReactNode;
+  onClick?: () => void;
+}) {
+  const body = (
+    <>
+      <p className="font-display text-3xl font-bold" style={{ color: tone }}>
+        {value}
+      </p>
+      <p className="mt-1 text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+        {label}
+      </p>
+      {sub && <div className="mt-1.5">{sub}</div>}
+    </>
+  );
+  if (onClick) {
+    return (
+      <button
+        onClick={onClick}
+        className="admin-glass group flex items-start justify-between gap-2 rounded-2xl p-4 text-left transition hover:border-[#2e6bff]/60 hover:ring-2 hover:ring-[#2e6bff]/30"
+      >
+        <div>{body}</div>
+        <ArrowRight className="mt-1 size-4 shrink-0 text-[#94a3c8] transition group-hover:text-[#6fa0ff]" />
+      </button>
+    );
+  }
+  return <div className="admin-glass rounded-2xl p-4">{body}</div>;
+}
+
+function MemberDelta({ stats }: { stats: DashboardStats }) {
+  const { created_this_month: current, created_last_month: last } = stats.members;
+  if (last <= 0) {
+    return <span className="text-[#6fa0ff]">{current} added this month</span>;
+  }
+  const pct = Math.round(((current - last) / last) * 100);
+  const up = pct >= 0;
+  return (
+    <span className={`inline-flex items-center gap-1 ${up ? "text-[#34d399]" : "text-[#fda4af]"}`}>
+      {up ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />}
+      {pct >= 0 ? `+${pct}` : pct}% vs last month
+    </span>
+  );
+}
+
+function campaignChartData(campaigns: DashboardStats["registrations"]["campaigns"]) {
+  return campaigns.map((campaign) => ({
+    ...campaign,
+    shortTitle: campaign.title.length > 20 ? `${campaign.title.slice(0, 19)}…` : campaign.title,
+  }));
+}
+
+function RegistrationsCaption({ campaigns }: { campaigns: DashboardCampaignFunnel[] }) {
+  if (campaigns.length === 0) return null;
+  const submitted = campaigns.reduce((sum, campaign) => sum + campaign.submitted, 0);
+  const checkedIn = campaigns.reduce((sum, campaign) => sum + campaign.checked_in, 0);
+  return (
+    <p className="mt-1 text-[11px] font-semibold text-[#94a3c8]">
+      {submitted} submissions · {checkedIn} checked in
+    </p>
+  );
+}
+
 type Post = {
   id: string;
   kind: "event" | "news";
@@ -332,6 +420,7 @@ function AdminPage() {
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
   const [profileUploading, setProfileUploading] = useState(false);
   const [disableTarget, setDisableTarget] = useState<AdminRow | null>(null);
+  const [adminManageId, setAdminManageId] = useState<string | null>(null);
 
   const { data: isAdmin, isLoading: roleLoading } = useQuery({
     queryKey: ["is-admin"],
@@ -384,6 +473,17 @@ function AdminPage() {
     queryKey: ["admin-posts"],
     enabled: isAdmin === true && canAccess("events"),
     queryFn: () => listPosts(),
+  });
+
+  const {
+    data: stats,
+    isPending: statsPending,
+    isError: statsError,
+  } = useQuery({
+    queryKey: ["dashboard-stats"],
+    enabled: isAdmin === true,
+    queryFn: () => getDashboardStats(),
+    refetchInterval: 60_000,
   });
 
   const savePost = useMutation({
@@ -792,63 +892,7 @@ function AdminPage() {
 
   const managedMember = members.find((member) => member.id === manageId) ?? null;
 
-  const now = useMemo(() => Date.now(), []);
-  const statusBreakdown = useMemo(() => {
-    let active = 0;
-    let pending = 0;
-    let blocked = 0;
-    for (const member of members) {
-      if (member.blocked_until && new Date(member.blocked_until).getTime() > now) {
-        blocked += 1;
-      } else if (member.status === "pending") {
-        pending += 1;
-      } else {
-        active += 1;
-      }
-    }
-    return { active, pending, blocked };
-  }, [members, now]);
-
-  const levelDist = useMemo(
-    () =>
-      LEVELS.map((lvl) => ({
-        name: lvl,
-        value: members.filter((m) => m.level === lvl).length,
-      })),
-    [members],
-  );
-
-  const departmentDist = useMemo(
-    () =>
-      DEPARTMENTS.map((dep) => ({
-        name: dep,
-        value: members.filter((m) => m.department === dep).length,
-      })),
-    [members],
-  );
-
-  const eventTrend = useMemo(() => {
-    const labels = Array.from({ length: 6 }, (_, i) => {
-      const d = new Date();
-      d.setDate(1);
-      d.setMonth(d.getMonth() - (5 - i));
-      return d.toLocaleString("en-GB", { month: "short", year: "2-digit" });
-    });
-    const buckets = labels.map(() => 0);
-    const nowT = new Date();
-    for (const post of posts) {
-      if (post.kind !== "event") continue;
-      const ts = post.event_date ? new Date(post.event_date) : new Date(post.created_at);
-      const monthStart = new Date(ts.getFullYear(), ts.getMonth(), 1);
-      const diffMonths =
-        (nowT.getFullYear() - ts.getFullYear()) * 12 + (nowT.getMonth() - ts.getMonth());
-      if (diffMonths < 0 || diffMonths > 5) continue;
-      const idx = 5 - diffMonths;
-      if (idx < 0 || idx >= buckets.length) continue;
-      buckets[idx] = (buckets[idx] ?? 0) + 1;
-    }
-    return labels.map((label, i) => ({ month: label, count: buckets[i] }));
-  }, [posts]);
+  const managedAdmin = admins.find((admin) => admin.user_id === adminManageId) ?? null;
 
   async function signOut() {
     await queryClient.cancelQueries();
@@ -1149,161 +1193,461 @@ function AdminPage() {
               </div>
 
               {tab === "dashboard" && (
-                <div className="mt-6 space-y-4">
-                  {!canAccess("members") && !canAccess("events") && (
-                    <div className="admin-glass rounded-2xl px-4 py-8 text-center">
-                      <p className="font-display text-xl font-bold text-white">Welcome back</p>
-                      <p className="mt-2 font-semibold text-[#94a3c8]">
-                        Your access to the section analytics below is limited — ask the club owner
-                        to grant it in the Admins page if you need to see them.
-                      </p>
-                    </div>
+                <div className="mt-6 space-y-6">
+                  {statsPending && (
+                    <p className="admin-glass rounded-2xl px-4 py-10 text-center font-semibold text-[#94a3c8]">
+                      Loading dashboard…
+                    </p>
                   )}
-
-                  {canAccess("members") && (
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                      <div className="admin-glass rounded-2xl p-4">
-                        <p className="font-display text-3xl font-bold text-[#6fa0ff]">
-                          {members.length}
-                        </p>
-                        <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                          Total members
-                        </p>
-                      </div>
-                      <div className="admin-glass rounded-2xl p-4">
-                        <p className="font-display text-3xl font-bold text-[#6fa0ff]">
-                          {statusBreakdown.active}
-                        </p>
-                        <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                          Active
-                        </p>
-                      </div>
-                      <div className="admin-glass rounded-2xl p-4">
-                        <p className="font-display text-3xl font-bold text-[#fcd34d]">
-                          {statusBreakdown.pending}
-                        </p>
-                        <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                          Pending
-                        </p>
-                      </div>
-                      <div className="admin-glass rounded-2xl p-4">
-                        <p className="font-display text-3xl font-bold text-[#fda4af]">
-                          {statusBreakdown.blocked}
-                        </p>
-                        <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                          Blocked
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {canAccess("members") && members.length === 0 && (
-                    <p className="admin-glass rounded-2xl px-4 py-6 text-center font-semibold text-[#94a3c8]">
-                      No members yet — add members from the Members tab to see analytics.
+                  {statsError && !stats && (
+                    <p className="admin-glass rounded-2xl px-4 py-10 text-center font-semibold text-[#fda4af]">
+                      Could not load the dashboard.
                     </p>
                   )}
 
-                  {canAccess("members") && (
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="admin-glass rounded-2xl p-4">
-                        <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                          Members by level
-                        </p>
-                        <div className="h-64">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={levelDist}
-                                dataKey="value"
-                                nameKey="name"
-                                innerRadius={45}
-                                outerRadius={75}
-                                paddingAngle={2}
-                              >
-                                {levelDist.map((entry, i) => (
-                                  <Cell
-                                    key={entry.name}
-                                    fill={CHART_COLORS[i % CHART_COLORS.length] ?? "#2e6bff"}
-                                  />
-                                ))}
-                              </Pie>
-                              <Tooltip contentStyle={chartTooltipStyle} />
-                              <Legend
-                                wrapperStyle={{ color: "#c7d2fe", fontSize: 12, fontWeight: 600 }}
-                              />
-                            </PieChart>
-                          </ResponsiveContainer>
-                        </div>
+                  {stats && (
+                    <>
+                      {/* ── 1 · KPI row ── */}
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        {canAccess("members") && (
+                          <KpiCard
+                            label="Total members"
+                            value={stats.members.total}
+                            sub={<MemberDelta stats={stats} />}
+                          />
+                        )}
+                        {isOwner && (
+                          <KpiCard
+                            label="Pending admin requests"
+                            value={stats.adminRequests.pending_count}
+                            tone="#a78bfa"
+                            onClick={() => setTab("admins")}
+                          />
+                        )}
+                        {canAccess("registrations") && (
+                          <KpiCard
+                            label="Pending registrations"
+                            value={stats.registrations.pending_total}
+                            tone="#fcd34d"
+                            onClick={() => setTab("registrations")}
+                          />
+                        )}
+                        {canAccess("registrations") && (
+                          <KpiCard
+                            label="Open campaigns"
+                            value={stats.registrations.open_campaigns}
+                            tone="#34d399"
+                          />
+                        )}
                       </div>
 
-                      <div className="admin-glass rounded-2xl p-4">
-                        <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                          Members by department
-                        </p>
-                        <div className="h-64">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={departmentDist}>
-                              <XAxis
-                                dataKey="name"
-                                tick={axisTick}
-                                interval={0}
-                                stroke={gridStroke}
-                              />
-                              <YAxis
-                                allowDecimals={false}
-                                width={28}
-                                tick={axisTick}
-                                stroke={gridStroke}
-                              />
-                              <Tooltip
-                                contentStyle={chartTooltipStyle}
-                                cursor={{ fill: "rgba(46,107,255,0.15)" }}
-                              />
-                              <Bar dataKey="value" fill="#2e6bff" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                      {/* ── 2 · Members analytics ── */}
+                      {canAccess("members") && (
+                        <section className="admin-glass rounded-3xl p-5 md:p-6">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                              Members analytics
+                            </h2>
+                            <span className="rounded-full border border-[#f43f5e]/30 bg-[#f43f5e]/10 px-3 py-1 text-[11px] font-extrabold text-[#fda4af] uppercase">
+                              Currently blocked · {stats.members.blocked}
+                            </span>
+                          </div>
 
-                  {canAccess("events") && (
-                    <div className="admin-glass rounded-2xl p-4">
-                      <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                        Events — last 6 months
-                      </p>
-                      {eventTrend.every((e) => e.count === 0) ? (
-                        <p className="py-10 text-center font-semibold text-[#94a3c8]">
-                          No events yet.
-                        </p>
-                      ) : (
-                        <div className="h-64">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={eventTrend}>
-                              <XAxis dataKey="month" tick={axisTick} stroke={gridStroke} />
-                              <YAxis
-                                allowDecimals={false}
-                                width={28}
-                                tick={axisTick}
-                                stroke={gridStroke}
-                              />
-                              <Tooltip contentStyle={chartTooltipStyle} />
-                              <Legend
-                                wrapperStyle={{ color: "#c7d2fe", fontSize: 12, fontWeight: 600 }}
-                              />
-                              <Line
-                                type="monotone"
-                                dataKey="count"
-                                stroke="#2e6bff"
-                                strokeWidth={2}
-                                dot={{ r: 3, fill: "#2e6bff" }}
-                                activeDot={{ r: 5 }}
-                              />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        </div>
+                          <div className="mt-5">
+                            {stats.members.by_month.every((m) => m.cumulative === 0) ? (
+                              <EmptyHint>
+                                No members yet — add members from the Members tab to see growth.
+                              </EmptyHint>
+                            ) : (
+                              <div className="h-52">
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <AreaChart data={stats.members.by_month}>
+                                    <defs>
+                                      <linearGradient
+                                        id="memberGrowthFill"
+                                        x1="0"
+                                        y1="0"
+                                        x2="0"
+                                        y2="1"
+                                      >
+                                        <stop offset="0%" stopColor="#2e6bff" stopOpacity={0.45} />
+                                        <stop
+                                          offset="100%"
+                                          stopColor="#2e6bff"
+                                          stopOpacity={0.03}
+                                        />
+                                      </linearGradient>
+                                    </defs>
+                                    <XAxis dataKey="month" tick={axisTick} stroke={gridStroke} />
+                                    <YAxis
+                                      allowDecimals={false}
+                                      width={28}
+                                      tick={axisTick}
+                                      stroke={gridStroke}
+                                    />
+                                    <CartesianGrid stroke={gridStroke} vertical={false} />
+                                    <Tooltip contentStyle={chartTooltipStyle} />
+                                    <Area
+                                      type="monotone"
+                                      dataKey="cumulative"
+                                      name="Members"
+                                      stroke="#2e6bff"
+                                      strokeWidth={2}
+                                      fill="url(#memberGrowthFill)"
+                                      dot={{ r: 3, fill: "#2e6bff" }}
+                                      activeDot={{ r: 5 }}
+                                    />
+                                  </AreaChart>
+                                </ResponsiveContainer>
+                              </div>
+                            )}
+                            <p className="mx-2 mt-1 text-[11px] font-semibold text-[#94a3c8]">
+                              Cumulative member count by month
+                            </p>
+                          </div>
+
+                          <div className="mt-5 grid gap-4 md:grid-cols-2">
+                            <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
+                              <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                                Members by level
+                              </p>
+                              <div className="mt-1 h-56">
+                                {stats.members.by_level.length === 0 ? (
+                                  <EmptyHint>No data yet.</EmptyHint>
+                                ) : (
+                                  <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                      <Pie
+                                        data={stats.members.by_level}
+                                        dataKey="value"
+                                        nameKey="level"
+                                        innerRadius={45}
+                                        outerRadius={75}
+                                        paddingAngle={2}
+                                      >
+                                        {stats.members.by_level.map((entry, i) => (
+                                          <Cell
+                                            key={entry.level}
+                                            fill={
+                                              CHART_COLORS[i % CHART_COLORS.length] ?? "#2e6bff"
+                                            }
+                                          />
+                                        ))}
+                                      </Pie>
+                                      <Tooltip contentStyle={chartTooltipStyle} />
+                                      <Legend
+                                        wrapperStyle={{
+                                          color: "#c7d2fe",
+                                          fontSize: 12,
+                                          fontWeight: 600,
+                                        }}
+                                      />
+                                    </PieChart>
+                                  </ResponsiveContainer>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
+                              <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                                Members by department
+                              </p>
+                              <div className="mt-1 h-56">
+                                {stats.members.by_department.length === 0 ? (
+                                  <EmptyHint>No data yet.</EmptyHint>
+                                ) : (
+                                  <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={stats.members.by_department}>
+                                      <XAxis
+                                        dataKey="department"
+                                        tick={axisTick}
+                                        interval={0}
+                                        stroke={gridStroke}
+                                      />
+                                      <YAxis
+                                        allowDecimals={false}
+                                        width={28}
+                                        tick={axisTick}
+                                        stroke={gridStroke}
+                                      />
+                                      <Tooltip
+                                        contentStyle={chartTooltipStyle}
+                                        cursor={{ fill: "rgba(46,107,255,0.15)" }}
+                                      />
+                                      <Bar dataKey="value" fill="#2e6bff" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                  </ResponsiveContainer>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </section>
                       )}
-                    </div>
+
+                      {/* ── 3 · Registrations analytics ── */}
+                      {canAccess("registrations") && (
+                        <section className="admin-glass rounded-3xl p-5 md:p-6">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                              Registrations analytics
+                            </h2>
+                            <span
+                              className={`rounded-full border px-3 py-1 text-[11px] font-extrabold uppercase ${
+                                stats.registrations.acceptance_rate === null
+                                  ? "border-white/10 bg-white/5 text-[#94a3c8]"
+                                  : "border-[#34d399]/30 bg-[#34d399]/10 text-[#6ee7b7]"
+                              }`}
+                            >
+                              {stats.registrations.acceptance_rate === null
+                                ? "No decisions yet"
+                                : `${stats.registrations.acceptance_rate}% accepted`}
+                            </span>
+                          </div>
+
+                          {stats.registrations.campaigns.length === 0 ? (
+                            <div className="mt-4">
+                              <EmptyHint>
+                                No open registration campaigns yet — open one from the Registrations
+                                tab.
+                              </EmptyHint>
+                            </div>
+                          ) : (
+                            <div className="mt-4">
+                              <div className="h-56">
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <BarChart
+                                    data={campaignChartData(stats.registrations.campaigns)}
+                                    layout="vertical"
+                                    margin={{ left: 0, right: 8 }}
+                                  >
+                                    <XAxis
+                                      type="number"
+                                      allowDecimals={false}
+                                      tick={axisTick}
+                                      stroke={gridStroke}
+                                    />
+                                    <YAxis
+                                      type="category"
+                                      dataKey="shortTitle"
+                                      width={140}
+                                      tick={axisTick}
+                                      stroke={gridStroke}
+                                      interval={0}
+                                    />
+                                    <Tooltip
+                                      contentStyle={chartTooltipStyle}
+                                      cursor={{ fill: "rgba(46,107,255,0.15)" }}
+                                    />
+                                    <Legend
+                                      wrapperStyle={{
+                                        color: "#c7d2fe",
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                      }}
+                                    />
+                                    <Bar
+                                      dataKey="pending"
+                                      stackId="s"
+                                      name="Pending"
+                                      fill="#2e6bff"
+                                      barSize={22}
+                                    />
+                                    <Bar
+                                      dataKey="accepted"
+                                      stackId="s"
+                                      name="Accepted"
+                                      fill="#34d399"
+                                      barSize={22}
+                                    />
+                                    <Bar
+                                      dataKey="removed"
+                                      stackId="s"
+                                      name="Removed"
+                                      fill="#f43f5e"
+                                      barSize={22}
+                                      radius={[0, 3, 3, 0]}
+                                    />
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              </div>
+                              <RegistrationsCaption campaigns={stats.registrations.campaigns} />
+                              {stats.registrations.campaigns.length <
+                                stats.registrations.open_campaigns && (
+                                <p className="mx-2 mt-1 text-[11px] font-semibold text-[#94a3c8]">
+                                  Showing {stats.registrations.campaigns.length} of{" "}
+                                  {stats.registrations.open_campaigns} open campaigns
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </section>
+                      )}
+
+                      {/* ── 4 · Events analytics ── */}
+                      {canAccess("events") && (
+                        <section className="admin-glass rounded-3xl p-5 md:p-6">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                              Events analytics
+                            </h2>
+                            <div className="flex flex-wrap gap-2">
+                              <span className="rounded-full border border-[#2e6bff]/40 bg-[#2e6bff]/15 px-3 py-1 text-[11px] font-extrabold text-[#6fa0ff] uppercase">
+                                {stats.events.published} published
+                              </span>
+                              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-extrabold text-[#94a3c8] uppercase">
+                                {stats.events.drafts} drafts
+                              </span>
+                            </div>
+                          </div>
+
+                          {stats.events.by_month.every((e) => e.count === 0) ? (
+                            <div className="mt-4">
+                              <EmptyHint>No events yet — create one from the Events tab.</EmptyHint>
+                            </div>
+                          ) : (
+                            <div className="mt-4">
+                              <div className="h-56">
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <LineChart data={stats.events.by_month}>
+                                    <XAxis dataKey="month" tick={axisTick} stroke={gridStroke} />
+                                    <YAxis
+                                      allowDecimals={false}
+                                      width={28}
+                                      tick={axisTick}
+                                      stroke={gridStroke}
+                                    />
+                                    <CartesianGrid stroke={gridStroke} vertical={false} />
+                                    <Tooltip contentStyle={chartTooltipStyle} />
+                                    <Legend
+                                      wrapperStyle={{
+                                        color: "#c7d2fe",
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                      }}
+                                    />
+                                    <Line
+                                      type="monotone"
+                                      dataKey="count"
+                                      name="Events"
+                                      stroke="#2e6bff"
+                                      strokeWidth={2}
+                                      dot={{ r: 3, fill: "#2e6bff" }}
+                                      activeDot={{ r: 5 }}
+                                    />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              </div>
+                              <p className="mx-2 mt-1 text-[11px] font-semibold text-[#94a3c8]">
+                                Events by month — last 6 months
+                              </p>
+                            </div>
+                          )}
+                        </section>
+                      )}
+
+                      {/* ── 5 · Admin & team ── */}
+                      <section className="admin-glass rounded-3xl p-5 md:p-6">
+                        <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                          Admin & team
+                        </h2>
+
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                              Active admins
+                            </p>
+                            <p className="mt-2 font-display text-3xl font-bold text-[#6fa0ff]">
+                              {stats.admins.active_total}
+                            </p>
+                            <p className="mt-1 text-[11px] font-semibold text-[#94a3c8]">
+                              {stats.admins.total} admin account
+                              {stats.admins.total === 1 ? "" : "s"} registered
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                              By role
+                            </p>
+                            {stats.admins.by_role.length === 0 ? (
+                              <div className="mt-3">
+                                <EmptyHint>No active admins yet.</EmptyHint>
+                              </div>
+                            ) : (
+                              <div className="mt-3 space-y-2.5">
+                                {stats.admins.by_role.map((entry) => (
+                                  <div key={entry.role}>
+                                    <div className="flex items-center justify-between text-xs font-bold text-white">
+                                      <span>{prettyRole(entry.role)}</span>
+                                      <span className="text-[#94a3c8]">{entry.value}</span>
+                                    </div>
+                                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/5">
+                                      <div
+                                        className="h-1.5 rounded-full bg-[#2e6bff]"
+                                        style={{
+                                          width: `${
+                                            stats.admins.active_total > 0
+                                              ? (entry.value / stats.admins.active_total) * 100
+                                              : 0
+                                          }%`,
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {isOwner && (
+                          <div className="mt-5 border-t border-white/10 pt-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                                Pending admin requests
+                              </p>
+                              {stats.adminRequests.pending.length > 0 && (
+                                <button
+                                  onClick={() => setTab("admins")}
+                                  className="text-[11px] font-extrabold text-[#6fa0ff] transition hover:text-white"
+                                >
+                                  Manage in Admins
+                                </button>
+                              )}
+                            </div>
+                            {stats.adminRequests.pending.length === 0 ? (
+                              <p className="mt-3 text-sm font-semibold text-[#94a3c8]">
+                                No pending admin requests.
+                              </p>
+                            ) : (
+                              <ul className="mt-3 space-y-2">
+                                {stats.adminRequests.pending.map((request) => (
+                                  <li
+                                    key={request.id}
+                                    className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-bold text-white">
+                                        {request.name}
+                                      </p>
+                                      <p className="truncate text-xs font-semibold text-[#94a3c8]">
+                                        {request.email} · {prettyRole(request.role)}
+                                      </p>
+                                    </div>
+                                    <button
+                                      onClick={() => setTab("admins")}
+                                      className="clay-sm shrink-0 rounded-xl bg-[#2e6bff] px-3 py-1.5 text-xs font-extrabold text-white transition hover:bg-[#2e6bff]/90"
+                                    >
+                                      Review
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </section>
+                    </>
                   )}
                 </div>
               )}
@@ -2358,13 +2702,11 @@ function AdminPage() {
                 <div className="admin-glass mt-8 rounded-3xl p-6 md:p-8">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <h2 className="font-display text-xl font-bold text-white">
-                        Admins &amp; permissions
-                      </h2>
+                      <h2 className="font-display text-xl font-bold text-white">Admins</h2>
                       <p className="mt-1 max-w-xl text-sm font-semibold text-[#94a3c8]">
-                        Switch off a section to restrict an admin. Every section starts enabled
-                        (full access); turning one off hides it from that admin and blocks the
-                        matching actions server-side.
+                        Open an admin's Manage panel to set their section access or revoke their
+                        access. Every section starts enabled (full access); turning one off hides it
+                        from that admin and blocks the matching actions server-side.
                       </p>
                     </div>
                     <span className="rounded-full border border-[#2e6bff]/40 bg-[#2e6bff]/15 px-3 py-1.5 text-[11px] font-extrabold tracking-wide text-[#6fa0ff] uppercase">
@@ -2372,111 +2714,94 @@ function AdminPage() {
                     </span>
                   </div>
 
-                  <div className="mt-6">
-                    <div className="grid grid-cols-[1fr_repeat(6,minmax(4.5rem,1fr))_2.5rem] items-center gap-2 border-b border-white/10 pb-2 text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                      <span>Admin</span>
-                      {ADMIN_SECTIONS.map((section) => (
-                        <span key={section} className="text-center">
-                          {adminSectionLabel(section)}
-                        </span>
-                      ))}
-                      <span className="text-center">Active</span>
-                    </div>
-
-                    {admins.length === 0 && (
-                      <p className="py-8 text-center font-semibold text-[#94a3c8]">
-                        No approved admins yet.
-                      </p>
-                    )}
-
-                    {admins.map((admin) => {
-                      const isOwnerRow = admin.email === session?.email;
-                      const disabled = Boolean(admin.disabled_at);
-                      return (
-                        <div
-                          key={admin.user_id}
-                          className={`grid grid-cols-[1fr_repeat(6,minmax(4.5rem,1fr))_2.5rem] items-center gap-2 border-b border-white/10 py-3.5 ${
-                            disabled ? "opacity-60" : ""
-                          }`}
-                        >
-                          <div className="flex min-w-0 items-center gap-3">
-                            <Avatar className="size-9 shrink-0">
-                              <AvatarImage src={admin.avatar_url ?? undefined} alt="" />
-                              <AvatarFallback className="bg-[#2e6bff]/25 text-xs font-bold text-white">
-                                {avatarFallback(admin.display_name, admin.email)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="min-w-0">
-                              <p className="truncate font-bold text-white">
-                                {admin.display_name || admin.email || "Admin"}
-                                {isOwnerRow && (
-                                  <span className="ml-2 rounded-full bg-[#fcd34d]/15 px-2 py-0.5 text-[10px] font-extrabold text-[#fcd34d] uppercase">
-                                    You
-                                  </span>
-                                )}
-                              </p>
-                              <p className="truncate text-[11px] font-semibold text-[#94a3c8]">
-                                {admin.email}
-                                {admin.department && (
-                                  <span className="text-[#6fa0ff]"> · {admin.department}</span>
-                                )}
-                                {admin.level && <span> · {admin.level}</span>}
-                                {admin.admin_role && (
-                                  <span className="text-[#6fa0ff]">
-                                    {" "}
-                                    · {prettyRole(admin.admin_role)}
-                                  </span>
-                                )}
-                              </p>
-                            </div>
-                          </div>
-
-                          {ADMIN_SECTIONS.map((section) => {
-                            const allowed = !admin.restricted.includes(section);
-                            return (
-                              <div key={section} className="flex justify-center">
-                                <Switch
-                                  checked={allowed}
-                                  disabled={isOwnerRow || toggleSection.isPending}
-                                  aria-label={`${adminSectionLabel(section)} access for ${
-                                    admin.display_name || admin.email
-                                  }`}
-                                  onCheckedChange={() =>
-                                    toggleSection.mutate({
-                                      adminId: admin.user_id,
-                                      section,
-                                      allowed: !allowed,
-                                    })
-                                  }
-                                  className="data-[state=checked]:bg-[#2e6bff]"
-                                />
-                              </div>
-                            );
-                          })}
-
-                          <div className="flex justify-center">
-                            <Switch
-                              checked={!disabled}
-                              disabled={isOwnerRow || toggleDisabled.isPending}
-                              aria-label={`${disabled ? "Re-enable" : "Disable"} ${
-                                admin.display_name || admin.email
+                  <div className="admin-glass mt-6 overflow-x-auto rounded-2xl">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-white/[0.04] text-left text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                          <th className="px-5 py-3">Name</th>
+                          <th className="px-5 py-3">Email</th>
+                          <th className="px-5 py-3">Role</th>
+                          <th className="px-5 py-3">Status</th>
+                          <th className="px-5 py-3 text-right">Manage</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/10">
+                        {admins.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={5}
+                              className="px-5 py-8 text-center font-semibold text-[#94a3c8]"
+                            >
+                              No approved admins yet.
+                            </td>
+                          </tr>
+                        )}
+                        {admins.map((admin) => {
+                          const isOwnerRow = admin.email === session?.email;
+                          const disabled = Boolean(admin.disabled_at);
+                          return (
+                            <tr
+                              key={admin.user_id}
+                              className={`transition-colors hover:bg-white/[0.04] ${
+                                disabled ? "opacity-60" : ""
                               }`}
-                              onCheckedChange={(next) => {
-                                if (next) {
-                                  toggleDisabled.mutate({
-                                    adminId: admin.user_id,
-                                    disabled: false,
-                                  });
-                                } else {
-                                  setDisableTarget(admin);
-                                }
-                              }}
-                              className="data-[state=checked]:bg-[#34d399]"
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
+                            >
+                              <td className="px-5 py-3.5">
+                                <div className="flex min-w-0 items-center gap-3">
+                                  <Avatar className="size-9 shrink-0">
+                                    <AvatarImage src={admin.avatar_url ?? undefined} alt="" />
+                                    <AvatarFallback className="bg-[#2e6bff]/25 text-xs font-bold text-white">
+                                      {avatarFallback(admin.display_name, admin.email)}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <p className="min-w-0 truncate font-bold text-white">
+                                    {admin.display_name || admin.email || "Admin"}
+                                    {isOwnerRow && (
+                                      <span className="ml-2 rounded-full bg-[#fcd34d]/15 px-2 py-0.5 text-[10px] font-extrabold text-[#fcd34d] uppercase">
+                                        You
+                                      </span>
+                                    )}
+                                  </p>
+                                </div>
+                              </td>
+                              <td className="px-5 py-3.5 font-semibold whitespace-nowrap">
+                                {admin.email ?? "—"}
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <span className="inline-block rounded-full bg-[#2e6bff]/15 px-3 py-1 text-[11px] font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                                  {prettyRole(admin.admin_role)}
+                                </span>
+                              </td>
+                              <td className="px-5 py-3.5">
+                                {disabled ? (
+                                  <span className="inline-block rounded-full bg-[#f43f5e]/20 px-3 py-1 text-[11px] font-extrabold text-[#fda4af] uppercase">
+                                    Disabled
+                                  </span>
+                                ) : (
+                                  <span className="inline-block rounded-full bg-[#34d399] px-3 py-1 text-[11px] font-extrabold text-[#04121a] uppercase">
+                                    Active
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-5 py-3.5 text-right">
+                                {isOwnerRow ? (
+                                  <span className="text-xs font-semibold text-[#64748b]">
+                                    Owner
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => setAdminManageId(admin.user_id)}
+                                    className="clay-sm inline-flex items-center gap-1.5 rounded-lg bg-[#2e6bff]/25 px-3 py-2 text-xs font-bold text-[#a5c3ff] transition-colors hover:bg-[#2e6bff]/40"
+                                  >
+                                    <Settings2 className="size-3.5" /> Manage
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               ) : (
@@ -2630,6 +2955,140 @@ function AdminPage() {
                   >
                     <Trash2 className="size-4" /> Remove member
                   </PanelAction>
+                </div>
+              </div>
+            </aside>
+          </>
+        )}
+
+        {managedAdmin && (
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              onClick={() => setAdminManageId(null)}
+            />
+            <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-white/10 bg-[#081020] shadow-2xl">
+              <div className="flex items-start justify-between gap-3 border-b border-white/10 p-6">
+                <div className="flex min-w-0 items-start gap-3">
+                  <Avatar className="size-12 shrink-0">
+                    <AvatarImage src={managedAdmin.avatar_url ?? undefined} alt="" />
+                    <AvatarFallback className="bg-[#2e6bff]/25 text-sm font-extrabold text-white">
+                      {avatarFallback(managedAdmin.display_name, managedAdmin.email)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <p className="font-display text-lg font-bold text-white">
+                      {managedAdmin.display_name || managedAdmin.email || "Admin"}
+                    </p>
+                    {managedAdmin.admin_role && (
+                      <p className="text-[11px] font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                        {prettyRole(managedAdmin.admin_role)}
+                      </p>
+                    )}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      {managedAdmin.disabled_at ? (
+                        <span className="inline-block rounded-full bg-[#f43f5e]/20 px-2.5 py-0.5 text-[10px] font-extrabold text-[#fda4af] uppercase">
+                          Disabled
+                        </span>
+                      ) : (
+                        <span className="inline-block rounded-full bg-[#34d399] px-2.5 py-0.5 text-[10px] font-extrabold text-[#04121a] uppercase">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setAdminManageId(null)}
+                  aria-label="Close admin panel"
+                  className="rounded-xl border border-white/10 bg-white/5 p-2 text-[#94a3c8] transition-colors hover:text-white"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6">
+                <h3 className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                  Details
+                </h3>
+                <div className="mt-3 grid gap-x-6 gap-y-4 text-sm">
+                  <Detail label="Email" value={managedAdmin.email ?? "—"} />
+                  <Detail
+                    label="Role"
+                    value={managedAdmin.admin_role ? prettyRole(managedAdmin.admin_role) : "Admin"}
+                  />
+                  <Detail label="Department" value={managedAdmin.department ?? "—"} />
+                  <Detail label="Level" value={managedAdmin.level ?? "—"} />
+                  <Detail
+                    label="Approved"
+                    value={
+                      managedAdmin.created_at
+                        ? new Date(managedAdmin.created_at).toLocaleString("en-GB")
+                        : "—"
+                    }
+                  />
+                </div>
+
+                <h3 className="mt-8 text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                  Section access
+                </h3>
+                <p className="mt-1 text-xs font-semibold text-[#64748b]">
+                  Turn a section off to hide it from this admin and block the matching actions
+                  server-side.
+                </p>
+                <div className="mt-3 grid gap-2">
+                  {ADMIN_SECTIONS.map((section) => {
+                    const allowed = !managedAdmin.restricted.includes(section);
+                    return (
+                      <div
+                        key={section}
+                        className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
+                      >
+                        <p className="text-sm font-bold text-white">{adminSectionLabel(section)}</p>
+                        <Switch
+                          checked={allowed}
+                          disabled={toggleSection.isPending}
+                          aria-label={`${adminSectionLabel(section)} access for ${
+                            managedAdmin.display_name || managedAdmin.email
+                          }`}
+                          onCheckedChange={() =>
+                            toggleSection.mutate({
+                              adminId: managedAdmin.user_id,
+                              section,
+                              allowed: !allowed,
+                            })
+                          }
+                          className="data-[state=checked]:bg-[#2e6bff]"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <h3 className="mt-8 text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                  Admin actions
+                </h3>
+                <div className="mt-3 grid gap-2.5">
+                  {managedAdmin.disabled_at ? (
+                    <PanelAction
+                      onClick={() =>
+                        toggleDisabled.mutate({
+                          adminId: managedAdmin.user_id,
+                          disabled: false,
+                        })
+                      }
+                      className="border-[#34d399]/30 bg-[#34d399]/10 text-[#6ee7b7] hover:bg-[#34d399]/20"
+                    >
+                      <UserCheck className="size-4" /> Restore admin access
+                    </PanelAction>
+                  ) : (
+                    <PanelAction
+                      onClick={() => setDisableTarget(managedAdmin)}
+                      className="border-[#f43f5e]/40 bg-[#f43f5e]/15 text-[#fda4af] hover:bg-[#f43f5e]/30"
+                    >
+                      <Trash2 className="size-4" /> Revoke admin access
+                    </PanelAction>
+                  )}
                 </div>
               </div>
             </aside>
@@ -2980,12 +3439,11 @@ function AdminPage() {
           <Dialog open onOpenChange={(open) => !open && setDisableTarget(null)}>
             <DialogContent className="border-white/10 bg-[#0a1226] text-white">
               <DialogHeader>
-                <DialogTitle className="text-white">
-                  Disable {disableTarget.display_name || disableTarget.email}?
-                </DialogTitle>
+                <DialogTitle className="text-white">Revoke admin access</DialogTitle>
                 <DialogDescription className="font-semibold text-[#94a3c8]">
-                  They keep their profile but immediately lose all admin access until you re-enable
-                  them. Their section permissions are kept.
+                  {disableTarget.display_name || disableTarget.email} keeps their profile and member
+                  record but immediately loses admin access until you restore it. Their account is
+                  not deleted and their section permissions are kept.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
@@ -3002,7 +3460,7 @@ function AdminPage() {
                   disabled={toggleDisabled.isPending}
                   className="clay-md rounded-2xl bg-[#f43f5e] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(244,63,94,0.6)] disabled:opacity-70"
                 >
-                  {toggleDisabled.isPending ? "Disabling…" : "Disable access"}
+                  {toggleDisabled.isPending ? "Revoking…" : "Revoke admin access"}
                 </button>
               </DialogFooter>
             </DialogContent>
