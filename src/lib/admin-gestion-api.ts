@@ -19,23 +19,15 @@ export const ADMIN_ROLES = [
 
 export type AdminRole = (typeof ADMIN_ROLES)[number];
 
-/** Roles available on the public request form (excludes president — owner only). */
-export const SUBMITTABLE_ADMIN_ROLES = [
-  "vice_president",
-  "media_leader",
-  "vice_media_leader",
-  "hr_leader",
-  "vice_hr_leader",
-] as const;
+/** Roles available on the public request form — the club's two departments
+ * (Media and HR) only, per the current club structure. President is owner-only. */
+export const SUBMITTABLE_ADMIN_ROLES = ["media_leader", "hr_leader"] as const;
 
 export type SubmittableAdminRole = (typeof SUBMITTABLE_ADMIN_ROLES)[number];
 
 export const DEPARTMENT_LABELS: Record<SubmittableAdminRole, string> = {
-  vice_president: "Vice President",
-  media_leader: "Media Leader",
-  vice_media_leader: "Vice Media Leader",
-  hr_leader: "HR Leader",
-  vice_hr_leader: "Vice HR Leader",
+  media_leader: "Media",
+  hr_leader: "HR",
 };
 
 // ─── Zod schema ──────────────────────────────────────────────────────────────

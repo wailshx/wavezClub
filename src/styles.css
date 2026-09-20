@@ -172,8 +172,9 @@ circle.animate-junction-pop {
   backdrop-filter: blur(20px) saturate(150%);
 }
 
-/* Public campaign card — matches .hero-glass but brighter, lifts on hover */
-.campaign-card {
+/* Public premium card — bright glass card used by events/news + registration
+   campaigns. Lifts and gains a soft blue glow on hover. */
+.premium-card {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.84));
   border: 1px solid rgba(255, 255, 255, 0.7);
   box-shadow:
@@ -183,13 +184,44 @@ circle.animate-junction-pop {
   backdrop-filter: blur(18px) saturate(140%);
   transition:
     transform 220ms ease,
-    box-shadow 220ms ease;
+    box-shadow 220ms ease,
+    border-color 220ms ease;
 }
-.campaign-card:hover {
+.premium-card:hover {
   transform: translateY(-4px);
+  border-color: rgba(37, 99, 235, 0.3);
   box-shadow:
     0 30px 60px -28px rgba(15, 23, 42, 0.3),
+    0 0 0 1px rgba(37, 99, 235, 0.18),
+    0 24px 50px -22px rgba(37, 99, 235, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+/*
+ * Merged "About + Activities" section — image frame with a soft blue glow
+ * border (gradient ring + outer glow), so the photo never reads as a plain
+ * flat image. Matches the hero's blue/cyan language.
+ */
+.image-glow-frame {
+  padding: 0.5rem;
+  border-radius: var(--radius-4xl);
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-brand) 32%, transparent),
+    color-mix(in oklab, var(--color-mint) 16%, transparent) 50%,
+    color-mix(in oklab, var(--color-brand) 28%, transparent)
+  );
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-brand) 22%, transparent),
+    0 24px 70px -28px color-mix(in oklab, var(--color-brand) 55%, transparent),
+    0 0 44px -14px color-mix(in oklab, var(--color-brand) 40%, transparent);
+  transition: box-shadow 300ms ease;
+}
+.image-glow-frame:hover {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-brand) 34%, transparent),
+    0 30px 80px -26px color-mix(in oklab, var(--color-brand) 65%, transparent),
+    0 0 56px -12px color-mix(in oklab, var(--color-brand) 50%, transparent);
 }
 
 /* Slow, small drift — ambient, not distracting. Durations differ so they never sync. */
@@ -553,7 +585,7 @@ body:has(.admin-theme) {
 .leaders-rail {
   display: flex;
   width: max-content;
-  animation: leaders-scroll 48s linear infinite;
+  animation: leaders-scroll 54s linear infinite;
   will-change: transform;
 }
 
@@ -573,11 +605,11 @@ body:has(.admin-theme) {
 .leader-card {
   display: flex;
   flex-direction: column;
-  width: 17rem;
+  width: 19rem;
   max-width: 80vw;
   flex-shrink: 0;
   border-radius: 1.5rem;
-  padding: 0.9rem;
+  padding: 1.25rem;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.6));
   border: 1px solid rgba(37, 99, 235, 0.16);
   -webkit-backdrop-filter: blur(18px) saturate(150%);

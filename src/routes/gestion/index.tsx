@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import {
+  DEPARTMENT_LABELS,
   SUBMITTABLE_ADMIN_ROLES,
   adminRequestSchema,
   submitAdminRequestAction,
@@ -27,14 +28,6 @@ export const Route = createFileRoute("/gestion/")({
 
 const OWNER_EMAIL = (import.meta.env["VITE_OWNER_EMAIL"] as string | undefined) ?? "";
 
-const DEPARTMENT_LABELS: Record<(typeof SUBMITTABLE_ADMIN_ROLES)[number], string> = {
-  vice_president: "Vice President",
-  media_leader: "Media Leader",
-  vice_media_leader: "Vice Media Leader",
-  hr_leader: "HR Leader",
-  vice_hr_leader: "Vice HR Leader",
-};
-
 const inputClass =
   "clay-sm mt-1.5 w-full rounded-2xl bg-background px-4 py-3 font-semibold text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-brand";
 
@@ -53,7 +46,7 @@ function GestionPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [department, setDepartment] =
-    useState<(typeof SUBMITTABLE_ADMIN_ROLES)[number]>("vice_president");
+    useState<(typeof SUBMITTABLE_ADMIN_ROLES)[number]>("media_leader");
   const [requestEmail, setRequestEmail] = useState("");
   const [phone, setPhone] = useState("");
 
