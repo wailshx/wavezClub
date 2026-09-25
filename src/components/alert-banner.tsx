@@ -48,7 +48,7 @@ export function AlertBanner({ variant, title, children, onDismiss }: AlertBanner
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss notification"
-          className={`shrink-0 rounded-lg p-1 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2e6bff] focus-visible:ring-offset-1 ${styles.text}`}
+          className={`shrink-0 rounded-lg p-1 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${styles.text}`}
         >
           <X className="size-4" />
         </button>

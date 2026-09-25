@@ -390,7 +390,7 @@ function Stepper({ current }: { current: number }) {
                 aria-current={active ? "step" : undefined}
                 className={`grid size-9 shrink-0 place-items-center rounded-full border-2 text-sm font-extrabold transition-colors ${
                   complete || active
-                    ? "border-[#2e6bff] bg-[#2e6bff] text-white shadow-[0_6px_18px_-8px_rgba(46,107,255,0.7)]"
+                    ? "border-brand bg-brand text-white shadow-[0_6px_18px_-8px_rgba(37,99,235,0.7)]"
                     : "border-[#c3cbd9] bg-background text-[#64748b]"
                 }`}
               >
@@ -399,13 +399,13 @@ function Stepper({ current }: { current: number }) {
               {index < STEP_LABELS.length - 1 && (
                 <span
                   aria-hidden="true"
-                  className={`mx-2 h-0.5 flex-1 rounded-full ${complete ? "bg-[#2e6bff]" : "bg-[#dfe5ee]"}`}
+                  className={`mx-2 h-0.5 flex-1 rounded-full ${complete ? "bg-brand" : "bg-[#dfe5ee]"}`}
                 />
               )}
             </span>
             <span
               className={`mt-2 text-xs font-extrabold tracking-wide uppercase ${
-                active || complete ? "text-[#2e6bff]" : "text-[#64748b]"
+                active || complete ? "text-brand" : "text-[#64748b]"
               }`}
             >
               {label}
@@ -444,15 +444,15 @@ function DocField({
         {titleLabel} <span className="text-[#ef4444]">*</span>
       </label>
       {doc ? (
-        <div className="mt-1.5 flex items-center gap-3 rounded-2xl border border-[#2e6bff]/30 bg-[#2e6bff]/5 px-3 py-2.5">
+        <div className="mt-1.5 flex items-center gap-3 rounded-2xl border border-brand/30 bg-brand/5 px-3 py-2.5">
           {isImage && doc.preview ? (
             <img
               src={doc.preview}
               alt={`${titleLabel} preview`}
-              className="size-14 shrink-0 rounded-xl border border-[#2e6bff]/20 object-cover"
+              className="size-14 shrink-0 rounded-xl border border-brand/20 object-cover"
             />
           ) : (
-            <span className="grid size-14 shrink-0 place-items-center rounded-xl bg-[#2e6bff]/10 text-[#2e6bff]">
+            <span className="grid size-14 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand">
               <FileText className="size-6" aria-hidden="true" />
             </span>
           )}
@@ -473,7 +473,7 @@ function DocField({
         </div>
       ) : (
         <label
-          className={`mt-1.5 flex w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-[#c3cbd9] bg-background px-4 py-6 text-center transition-colors hover:border-[#2e6bff]/50 hover:bg-[#2e6bff]/5`}
+          className={`mt-1.5 flex w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-[#c3cbd9] bg-background px-4 py-6 text-center transition-colors hover:border-brand/50 hover:bg-brand/5`}
         >
           <span className="text-sm font-bold text-brand-deep">Click to choose a file</span>
           <span className="text-xs font-semibold text-muted-foreground">
@@ -877,13 +877,13 @@ function MembershipWizard({ campaign }: { campaign: OpenCampaign }) {
           )}
 
           {step === 3 && uploadStep !== "none" && (
-            <div className="rounded-2xl border border-[#2e6bff]/30 bg-[#2e6bff]/5 px-4 py-3">
+            <div className="rounded-2xl border border-brand/30 bg-brand/5 px-4 py-3">
               <p className="flex items-center gap-2 text-sm font-bold text-brand-deep">
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                 {uploadStep === "school" ? "Uploading school certificate…" : "Uploading ID card…"}
               </p>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#dfe5ee]">
-                <div className="h-full w-1/2 animate-pulse rounded-full bg-[#2e6bff]" />
+                <div className="h-full w-1/2 animate-pulse rounded-full bg-brand" />
               </div>
             </div>
           )}

@@ -76,6 +76,24 @@ BEGIN
       COUNT(*) FILTER (WHERE status = 'accepted') AS accepted,
       COUNT(*) FILTER (WHERE status = 'removed') AS removed
     FROM registrations
+  ),
+  registration_submissions_by_month AS (
+    SELECT
+      months.m,
+      to_char(months.m, 'Mon YY') AS month,
+      COUNT(r.id)::int AS submitted
+    FROM months
+    LEFT JOIN registrations r ON date_trunc('month', r.created_at) = months.m
+    GROUP BY months.m
+  ),
+  admin_requests_by_month AS (
+    SELECT
+      months.m,
+      to_char(months.m, 'Mon YY') AS month,
+      COUNT(r.id)::int AS count
+    FROM months
+    LEFT JOIN admin_requests r ON date_trunc('month', r.created_at) = months.m
+    GROUP BY months.m
   )
   SELECT jsonb_build_object(
     'members',
@@ -118,7 +136,10 @@ BEGIN
             WHERE status = 'pending'
             ORDER BY created_at ASC
             LIMIT 20
-          ) r), '[]'::jsonb) ELSE '[]'::jsonb END
+          ) r), '[]'::jsonb) ELSE '[]'::jsonb END,
+        'by_month', CASE WHEN p_include_pending_requests THEN COALESCE((
+          SELECT jsonb_agg(jsonb_build_object('month', rb.month, 'count', rb.count) ORDER BY rb.m)
+          FROM admin_requests_by_month rb), '[]'::jsonb) ELSE '[]'::jsonb END
       ),
     'registrations',
       CASE WHEN p_registrations_allowed THEN jsonb_build_object(
@@ -135,9 +156,12 @@ BEGIN
             'submitted', cf.submitted, 'checked_in', cf.checked_in,
             'pending', cf.pending, 'accepted', cf.accepted, 'removed', cf.removed
           ) ORDER BY cf.display_order ASC, cf.created_at ASC)
-          FROM campaign_funnel cf), '[]'::jsonb)
+          FROM campaign_funnel cf), '[]'::jsonb),
+        'by_month', COALESCE((
+          SELECT jsonb_agg(jsonb_build_object('month', rb.month, 'submitted', rb.submitted) ORDER BY rb.m)
+          FROM registration_submissions_by_month rb), '[]'::jsonb)
       ) ELSE jsonb_build_object('open_campaigns', 0, 'pending_total', 0, 'acceptance_rate', NULL,
-        'campaigns', '[]'::jsonb) END,
+        'campaigns', '[]'::jsonb, 'by_month', '[]'::jsonb) END,
     'events',
       CASE WHEN p_events_allowed THEN jsonb_build_object(
         'by_month', COALESCE((

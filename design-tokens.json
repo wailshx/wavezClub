@@ -1,0 +1,22 @@
+{
+  "$schema": "./design-tokens.schema.json",
+  "title": "DesignSystemTokens",
+  "version": "1.0.0",
+  "colorPalette": {
+    "primary": "#2A62F0",
+    "secondary": "#E0F4FD",
+    "background": "#E8F7FE",
+    "surface": "#FFFFFF",
+    "textPrimary": "#283345"
+  },
+  "spacingGrid": [4, 8, 12, 16, 24, 32, 48, 64],
+  "typography": {
+    "fontFamilyBase": "Inter, ui-sans-serif, system-ui, sans-serif",
+    "fontFamilyCode": "JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace",
+    "headingScale": {
+      "h1": "clamp(2.5rem, 5vw + 1rem, 4rem)",
+      "h2": "clamp(2rem, 3.5vw + 0.75rem, 3rem)",
+      "h3": "clamp(1.5rem, 2.5vw + 0.5rem, 2.25rem)"
+    }
+  }
+}

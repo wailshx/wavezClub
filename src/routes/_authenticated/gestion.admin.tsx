@@ -1,12 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import {
   PieChart,
   Pie,
   Cell,
-  LineChart,
-  Line,
   AreaChart,
   Area,
   XAxis,
@@ -18,9 +16,11 @@ import {
   Legend,
   CartesianGrid,
 } from "recharts";
+import { useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import {
+  type LucideIcon,
   ArrowDown,
   ArrowRight,
   ArrowUp,
@@ -36,6 +36,7 @@ import {
   LayoutDashboard,
   LogOut,
   Mail,
+  Megaphone,
   Menu,
   Paperclip,
   Pencil,
@@ -185,14 +186,6 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const CHART_COLORS = ["#2e6bff", "#38bdf8", "#818cf8", "#a78bfa", "#f59e0b"];
-const chartTooltipStyle = {
-  backgroundColor: "rgba(10, 18, 38, 0.95)",
-  border: "1px solid rgba(255, 255, 255, 0.14)",
-  borderRadius: 12,
-  color: "#e6ecff",
-  fontSize: 12,
-  fontWeight: 600,
-} satisfies object;
 const axisTick = { fill: "#94a3c8", fontSize: 10 };
 const gridStroke = "rgba(255, 255, 255, 0.08)";
 
@@ -254,56 +247,347 @@ function EmptyHint({ children }: { children: ReactNode }) {
   );
 }
 
+/* ── Dashboard bento + KPI primitives ───────────────────────────────────── */
+// Stagger wrapper: handles the cascading entrance of dashboard sections.
+function DashSection({
+  className = "",
+  delay,
+  children,
+}: {
+  className?: string;
+  delay: number;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`dash-rise ${className}`} style={{ animationDelay: `${delay}s` }}>
+      {children}
+    </div>
+  );
+}
+
+// ~800ms ease-out count-up; reduced-motion renders the final value instantly.
+function useCountUp(target: number, durationMs = 800) {
+  const reduced = !!useReducedMotion();
+  const [value, setValue] = useState(target);
+  useEffect(() => {
+    if (reduced) {
+      setValue(target);
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      setValue(Math.round(target * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, durationMs, reduced]);
+  return value;
+}
+
+// Tiny no-axis trend line under a KPI number.
+function Sparkline({ points, tone }: { points: number[]; tone: string }) {
+  const gradientId = useId();
+  if (points.length < 2) return null;
+  const w = 132;
+  const h = 34;
+  const pad = 3;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const span = max - min || 1;
+  const stepX = (w - pad * 2) / (points.length - 1);
+  const coords = points.map((p, i) => ({
+    x: pad + i * stepX,
+    y: h - pad - ((p - min) / span) * (h - pad * 2),
+  }));
+  const line = coords
+    .map((c, i) => `${i === 0 ? "M" : "L"}${c.x.toFixed(2)} ${c.y.toFixed(2)}`)
+    .join(" ");
+  const area = `${line} L${(w - pad).toFixed(2)} ${h} L${pad} ${h} Z`;
+  const last = coords[coords.length - 1];
+  if (!last) return null;
+  return (
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      preserveAspectRatio="none"
+      className="h-8 w-full"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={tone} stopOpacity={0.32} />
+          <stop offset="100%" stopColor={tone} stopOpacity={0.02} />
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#${gradientId})`} />
+      <path
+        d={line}
+        fill="none"
+        stroke={tone}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <circle cx={last.x} cy={last.y} r={2.5} fill={tone} />
+    </svg>
+  );
+}
+
+// ↑/↓ percent pill computed from the last two points of a trend series.
+function TrendDelta({
+  points,
+  suffix = "",
+  goodWhenUp = true,
+}: {
+  points: number[];
+  suffix?: string;
+  goodWhenUp?: boolean;
+}) {
+  if (points.length < 2) return null;
+  const prev = points[points.length - 2];
+  const last = points[points.length - 1];
+  if (prev === undefined || last === undefined) return null;
+  if (!Number.isFinite(prev) || !Number.isFinite(last)) return null;
+  if (prev <= 0) return <span className="font-bold text-[#94a3c8]">new</span>;
+  const pct = Math.round(((last - prev) / prev) * 100);
+  if (pct === 0) return <span className="font-bold text-[#94a3c8]">0{suffix}</span>;
+  const up = pct > 0;
+  const color = up ? (goodWhenUp ? "#34d399" : "#fcd34d") : "#fda4af";
+  return (
+    <span className="inline-flex items-center gap-1 font-bold" style={{ color }}>
+      {up ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />}
+      {up ? `+${pct}` : pct}
+      {suffix}
+    </span>
+  );
+}
+
 function KpiCard({
   label,
   value,
   tone = "#6fa0ff",
+  icon: Icon,
+  spark,
+  delta,
   sub,
   onClick,
 }: {
   label: string;
   value: number;
   tone?: string;
+  icon?: LucideIcon;
+  spark?: number[];
+  delta?: ReactNode;
   sub?: ReactNode;
   onClick?: () => void;
 }) {
+  const count = useCountUp(value, 800);
+  const reduced = !!useReducedMotion();
   const body = (
-    <>
-      <p className="font-display text-3xl font-bold" style={{ color: tone }}>
-        {value}
-      </p>
-      <p className="mt-1 text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
-        {label}
-      </p>
-      {sub && <div className="mt-1.5">{sub}</div>}
-    </>
+    <div className="flex h-full flex-col">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-display text-3xl font-bold leading-none" style={{ color: tone }}>
+            {reduced ? value : count}
+          </p>
+          <p className="mt-1.5 text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+            {label}
+          </p>
+          {sub && <div className="mt-2 text-[11px] font-semibold text-[#94a3c8]">{sub}</div>}
+        </div>
+        {Icon && (
+          <span
+            className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-full"
+            style={{
+              backgroundColor: `${tone}24`,
+              color: tone,
+              boxShadow: `0 0 22px ${tone}38`,
+            }}
+          >
+            <Icon className="size-4" />
+          </span>
+        )}
+      </div>
+      {spark && spark.length > 1 && (
+        <div className="mt-3">
+          <Sparkline points={spark} tone={tone} />
+        </div>
+      )}
+      {delta && <div className="mt-1.5 flex items-center justify-end">{delta}</div>}
+    </div>
   );
+
+  const card =
+    "admin-glass group rounded-2xl p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[#2e6bff]/50 hover:ring-2 hover:ring-[#2e6bff]/25 hover:shadow-[0_18px_40px_-18px_rgba(46,107,255,0.45)]";
+
   if (onClick) {
     return (
-      <button
-        onClick={onClick}
-        className="admin-glass group flex items-start justify-between gap-2 rounded-2xl p-4 text-left transition hover:border-[#2e6bff]/60 hover:ring-2 hover:ring-[#2e6bff]/30"
-      >
-        <div>{body}</div>
-        <ArrowRight className="mt-1 size-4 shrink-0 text-[#94a3c8] transition group-hover:text-[#6fa0ff]" />
+      <button onClick={onClick} className={`${card} cursor-pointer`}>
+        {body}
       </button>
     );
   }
-  return <div className="admin-glass rounded-2xl p-4">{body}</div>;
+  return <div className={`${card} cursor-default`}>{body}</div>;
 }
 
-function MemberDelta({ stats }: { stats: DashboardStats }) {
-  const { created_this_month: current, created_last_month: last } = stats.members;
-  if (last <= 0) {
-    return <span className="text-[#6fa0ff]">{current} added this month</span>;
-  }
-  const pct = Math.round(((current - last) / last) * 100);
-  const up = pct >= 0;
+// Glass tooltip used by every dashboard chart (replaces recharts' white box).
+function GlassChartTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    dataKey?: string | number;
+    name?: string | number;
+    value?: number | string;
+    color?: string;
+    payload?: { fill?: string };
+  }>;
+  label?: string | number;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
   return (
-    <span className={`inline-flex items-center gap-1 ${up ? "text-[#34d399]" : "text-[#fda4af]"}`}>
-      {up ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />}
-      {pct >= 0 ? `+${pct}` : pct}% vs last month
-    </span>
+    <div className="min-w-[9rem] rounded-xl border border-white/15 bg-[#0a1226]/95 px-3.5 py-2.5 shadow-[0_18px_40px_-16px_rgba(6,11,24,0.9)] backdrop-blur-md">
+      {label != null && label !== "" && (
+        <p className="mb-1.5 text-xs font-extrabold text-white">{label}</p>
+      )}
+      <div className="space-y-1">
+        {payload.map((entry) => (
+          <div
+            key={String(entry.dataKey ?? entry.name ?? "")}
+            className="flex items-center gap-2 text-xs"
+          >
+            <span
+              className="size-2 shrink-0 rounded-full"
+              style={{ backgroundColor: entry.color ?? entry.payload?.fill ?? "#2e6bff" }}
+            />
+            <span className="font-semibold text-[#94a3c8]">{entry.name}</span>
+            <span className="ml-auto pl-4 font-bold text-white">{entry.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Stepped funnel: Submitted → Checked in → Accepted, with flow connectors.
+function RegistrationsFunnel({ campaigns }: { campaigns: DashboardCampaignFunnel[] }) {
+  const totals = campaigns.reduce(
+    (acc, c) => {
+      acc.submitted += c.submitted;
+      acc.checked_in += c.checked_in;
+      acc.pending += c.pending;
+      acc.accepted += c.accepted;
+      acc.removed += c.removed;
+      return acc;
+    },
+    { submitted: 0, checked_in: 0, pending: 0, accepted: 0, removed: 0 },
+  );
+  const stages = [
+    { key: "submitted", label: "Submitted", value: totals.submitted, tone: "#2e6bff" },
+    { key: "checked_in", label: "Checked in", value: totals.checked_in, tone: "#38bdf8" },
+    { key: "accepted", label: "Accepted", value: totals.accepted, tone: "#34d399" },
+  ];
+  return (
+    <div className="mt-4">
+      <div>
+        {stages.map((stage, i) => {
+          const pct = totals.submitted > 0 ? (stage.value / totals.submitted) * 100 : 0;
+          return (
+            <div key={stage.key}>
+              <div className="flex items-center gap-3">
+                <span className="w-24 shrink-0 text-xs font-extrabold text-[#c7d2fe] uppercase">
+                  {stage.label}
+                </span>
+                <div className="h-6 flex-1 overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10">
+                  <div
+                    className="h-full rounded-lg transition-[width] duration-700 ease-out"
+                    style={{
+                      width: `${Math.max(pct > 0 ? 6 : 0, pct)}%`,
+                      background: `linear-gradient(90deg, ${stage.tone}E6, ${stage.tone}59)`,
+                    }}
+                  />
+                </div>
+                <span
+                  className="w-14 shrink-0 text-right font-display text-sm font-bold"
+                  style={{ color: stage.tone }}
+                >
+                  {stage.value}
+                </span>
+                <span className="w-12 shrink-0 text-right text-[11px] font-bold text-[#94a3c8]">
+                  {totals.submitted > 0 ? `${Math.round(pct)}%` : "—"}
+                </span>
+              </div>
+              {i < stages.length - 1 && (
+                <div className="flex justify-center py-0.5" aria-hidden="true">
+                  <svg width="18" height="9" viewBox="0 0 18 9" className="text-white/25">
+                    <path
+                      d="M2 1 L9 8 L16 1"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-semibold text-[#94a3c8]">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-[#fcd34d]" />
+          {totals.pending} pending
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-[#f43f5e]" />
+          {totals.removed} removed
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Shimmer skeleton shown while the stats query is loading.
+function DashboardSkeleton() {
+  const kpi = [
+    { label: "Total members", cls: "md:col-span-3 lg:col-span-3" },
+    { label: "Pending requests", cls: "md:col-span-3 lg:col-span-3" },
+    { label: "Pending registrations", cls: "md:col-span-3 lg:col-span-3" },
+    { label: "Open campaigns", cls: "md:col-span-3 lg:col-span-3" },
+  ];
+  return (
+    <div
+      className="grid grid-cols-1 items-start gap-5 md:grid-cols-6 lg:grid-cols-12"
+      aria-label="Loading dashboard"
+    >
+      {kpi.map((card) => (
+        <div key={card.label} className={`admin-glass rounded-2xl p-4 ${card.cls}`}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-2">
+              <div className="admin-shimmer h-8 w-14 rounded-lg" />
+              <div className="admin-shimmer h-3 w-28 rounded" />
+            </div>
+            <div className="admin-shimmer size-9 shrink-0 rounded-full" />
+          </div>
+          <div className="admin-shimmer mt-4 h-8 w-full rounded-md" />
+        </div>
+      ))}
+      <div className="admin-glass rounded-3xl p-5 md:col-span-6 lg:col-span-8">
+        <div className="admin-shimmer h-4 w-40 rounded" />
+        <div className="admin-shimmer mt-5 h-56 w-full rounded-xl" />
+      </div>
+      <div className="admin-glass rounded-3xl p-5 md:col-span-6 lg:col-span-4">
+        <div className="admin-shimmer mx-auto mt-2 h-48 w-48 rounded-full" />
+      </div>
+    </div>
   );
 }
 
@@ -312,17 +596,6 @@ function campaignChartData(campaigns: DashboardStats["registrations"]["campaigns
     ...campaign,
     shortTitle: campaign.title.length > 20 ? `${campaign.title.slice(0, 19)}…` : campaign.title,
   }));
-}
-
-function RegistrationsCaption({ campaigns }: { campaigns: DashboardCampaignFunnel[] }) {
-  if (campaigns.length === 0) return null;
-  const submitted = campaigns.reduce((sum, campaign) => sum + campaign.submitted, 0);
-  const checkedIn = campaigns.reduce((sum, campaign) => sum + campaign.checked_in, 0);
-  return (
-    <p className="mt-1 text-[11px] font-semibold text-[#94a3c8]">
-      {submitted} submissions · {checkedIn} checked in
-    </p>
-  );
 }
 
 type Post = {
@@ -421,6 +694,8 @@ function AdminPage() {
   const [profileUploading, setProfileUploading] = useState(false);
   const [disableTarget, setDisableTarget] = useState<AdminRow | null>(null);
   const [adminManageId, setAdminManageId] = useState<string | null>(null);
+
+  const reduced = !!useReducedMotion();
 
   const { data: isAdmin, isLoading: roleLoading } = useQuery({
     queryKey: ["is-admin"],
@@ -993,7 +1268,7 @@ function AdminPage() {
   return (
     <ShadTooltipProvider delayDuration={100}>
       <div className="admin-theme relative">
-        <div className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/10 bg-[#060b18]/85 px-4 py-3 backdrop-blur-xl lg:hidden">
+        <div className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/10 bg-[#060b18]/85 px-4 py-3 backdrop-blur-xl xl:hidden">
           <button
             onClick={() => setSidebarOpen(true)}
             aria-label="Open navigation"
@@ -1008,13 +1283,13 @@ function AdminPage() {
 
         {sidebarOpen && (
           <div
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm xl:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
 
         <aside
-          className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col gap-6 border-r border-white/10 bg-[#081020]/95 p-5 backdrop-blur-2xl transition-transform duration-200 lg:hidden ${
+          className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col gap-6 border-r border-white/10 bg-[#081020]/95 p-5 backdrop-blur-2xl transition-transform duration-200 xl:hidden ${
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
@@ -1033,7 +1308,7 @@ function AdminPage() {
             <button
               onClick={() => setSidebarOpen(false)}
               aria-label="Close navigation"
-              className="rounded-xl border border-white/10 bg-white/5 p-2 text-[#94a3c8] lg:hidden"
+              className="rounded-xl border border-white/10 bg-white/5 p-2 text-[#94a3c8] xl:hidden"
             >
               <X className="size-4" />
             </button>
@@ -1079,7 +1354,7 @@ function AdminPage() {
           </div>
         </aside>
 
-        <aside className="fixed inset-y-0 left-0 z-50 hidden w-20 flex-col items-center gap-3 border-r border-white/10 bg-[#081020]/95 py-5 backdrop-blur-2xl lg:flex">
+        <aside className="fixed inset-y-0 left-0 z-50 hidden w-20 flex-col items-center gap-3 border-r border-white/10 bg-[#081020]/95 py-5 backdrop-blur-2xl xl:flex">
           <Link
             to="/"
             aria-label="Open the Wavez Club public site"
@@ -1175,7 +1450,7 @@ function AdminPage() {
           </div>
         </aside>
 
-        <main className="relative z-10 min-h-screen lg:pl-20">
+        <main className="relative z-10 min-h-screen xl:pl-20">
           <div className="mx-auto max-w-6xl px-5 py-8">
             <div className="admin-glass rounded-3xl p-6 md:p-8">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1193,12 +1468,8 @@ function AdminPage() {
               </div>
 
               {tab === "dashboard" && (
-                <div className="mt-6 space-y-6">
-                  {statsPending && (
-                    <p className="admin-glass rounded-2xl px-4 py-10 text-center font-semibold text-[#94a3c8]">
-                      Loading dashboard…
-                    </p>
-                  )}
+                <div className="mt-6">
+                  {statsPending && !stats && <DashboardSkeleton />}
                   {statsError && !stats && (
                     <p className="admin-glass rounded-2xl px-4 py-10 text-center font-semibold text-[#fda4af]">
                       Could not load the dashboard.
@@ -1206,124 +1477,184 @@ function AdminPage() {
                   )}
 
                   {stats && (
-                    <>
-                      {/* ── 1 · KPI row ── */}
-                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                        {canAccess("members") && (
+                    <div className="grid grid-cols-1 items-start gap-5 md:grid-cols-6 lg:grid-cols-12">
+                      {/* ── 1 · KPI cards — count-up, sparkline, delta ── */}
+                      {canAccess("members") && (
+                        <DashSection delay={0} className="md:col-span-3 lg:col-span-3">
                           <KpiCard
                             label="Total members"
                             value={stats.members.total}
-                            sub={<MemberDelta stats={stats} />}
+                            tone="#2e6bff"
+                            icon={Users}
+                            spark={stats.members.by_month.map((m) => m.cumulative)}
+                            delta={
+                              <TrendDelta
+                                points={stats.members.by_month.map((m) => m.cumulative)}
+                                suffix="% vs last month"
+                              />
+                            }
                           />
-                        )}
-                        {isOwner && (
+                        </DashSection>
+                      )}
+                      {isOwner && (
+                        <DashSection delay={0} className="md:col-span-3 lg:col-span-3">
                           <KpiCard
-                            label="Pending admin requests"
+                            label="Pending requests"
                             value={stats.adminRequests.pending_count}
                             tone="#a78bfa"
+                            icon={Shield}
+                            spark={(stats.adminRequests.by_month ?? []).map((m) => m.count)}
+                            delta={
+                              <TrendDelta
+                                points={(stats.adminRequests.by_month ?? []).map((m) => m.count)}
+                                suffix="% vs last month"
+                              />
+                            }
                             onClick={() => setTab("admins")}
                           />
-                        )}
-                        {canAccess("registrations") && (
+                        </DashSection>
+                      )}
+                      {canAccess("registrations") && (
+                        <DashSection delay={0} className="md:col-span-3 lg:col-span-3">
                           <KpiCard
                             label="Pending registrations"
                             value={stats.registrations.pending_total}
                             tone="#fcd34d"
+                            icon={ClipboardList}
+                            spark={(stats.registrations.by_month ?? []).map((m) => m.submitted)}
+                            delta={
+                              <TrendDelta
+                                points={(stats.registrations.by_month ?? []).map(
+                                  (m) => m.submitted,
+                                )}
+                                suffix="% vs last month"
+                              />
+                            }
                             onClick={() => setTab("registrations")}
                           />
-                        )}
-                        {canAccess("registrations") && (
+                        </DashSection>
+                      )}
+                      {canAccess("registrations") && (
+                        <DashSection delay={0} className="md:col-span-3 lg:col-span-3">
                           <KpiCard
                             label="Open campaigns"
                             value={stats.registrations.open_campaigns}
                             tone="#34d399"
+                            icon={Megaphone}
                           />
-                        )}
-                      </div>
+                        </DashSection>
+                      )}
 
-                      {/* ── 2 · Members analytics ── */}
+                      {/* ── 2 · Members analytics — featured growth area ── */}
                       {canAccess("members") && (
-                        <section className="admin-glass rounded-3xl p-5 md:p-6">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
-                              Members analytics
-                            </h2>
-                            <span className="rounded-full border border-[#f43f5e]/30 bg-[#f43f5e]/10 px-3 py-1 text-[11px] font-extrabold text-[#fda4af] uppercase">
-                              Currently blocked · {stats.members.blocked}
-                            </span>
-                          </div>
+                        <DashSection delay={0.08} className="md:col-span-6 lg:col-span-8">
+                          <section className="admin-glass rounded-3xl p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#2e6bff]/30 hover:shadow-[0_18px_40px_-18px_rgba(46,107,255,0.45)] md:p-6">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                                Members analytics
+                              </h2>
+                              <span className="rounded-full border border-[#f43f5e]/30 bg-[#f43f5e]/10 px-3 py-1 text-[11px] font-extrabold text-[#fda4af] uppercase">
+                                Currently blocked · {stats.members.blocked}
+                              </span>
+                            </div>
 
-                          <div className="mt-5">
-                            {stats.members.by_month.every((m) => m.cumulative === 0) ? (
-                              <EmptyHint>
-                                No members yet — add members from the Members tab to see growth.
-                              </EmptyHint>
-                            ) : (
-                              <div className="h-52">
-                                <ResponsiveContainer width="100%" height="100%">
-                                  <AreaChart data={stats.members.by_month}>
-                                    <defs>
-                                      <linearGradient
-                                        id="memberGrowthFill"
-                                        x1="0"
-                                        y1="0"
-                                        x2="0"
-                                        y2="1"
-                                      >
-                                        <stop offset="0%" stopColor="#2e6bff" stopOpacity={0.45} />
-                                        <stop
-                                          offset="100%"
-                                          stopColor="#2e6bff"
-                                          stopOpacity={0.03}
-                                        />
-                                      </linearGradient>
-                                    </defs>
-                                    <XAxis dataKey="month" tick={axisTick} stroke={gridStroke} />
-                                    <YAxis
-                                      allowDecimals={false}
-                                      width={28}
-                                      tick={axisTick}
-                                      stroke={gridStroke}
-                                    />
-                                    <CartesianGrid stroke={gridStroke} vertical={false} />
-                                    <Tooltip contentStyle={chartTooltipStyle} />
-                                    <Area
-                                      type="monotone"
-                                      dataKey="cumulative"
-                                      name="Members"
-                                      stroke="#2e6bff"
-                                      strokeWidth={2}
-                                      fill="url(#memberGrowthFill)"
-                                      dot={{ r: 3, fill: "#2e6bff" }}
-                                      activeDot={{ r: 5 }}
-                                    />
-                                  </AreaChart>
-                                </ResponsiveContainer>
-                              </div>
-                            )}
-                            <p className="mx-2 mt-1 text-[11px] font-semibold text-[#94a3c8]">
-                              Cumulative member count by month
-                            </p>
-                          </div>
-
-                          <div className="mt-5 grid gap-4 md:grid-cols-2">
-                            <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
-                              <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                                Members by level
+                            <div className="mt-5">
+                              {stats.members.by_month.every((m) => m.cumulative === 0) ? (
+                                <EmptyHint>
+                                  No members yet — add members from the Members tab to see growth.
+                                </EmptyHint>
+                              ) : (
+                                <div className="h-56">
+                                  <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={stats.members.by_month}>
+                                      <defs>
+                                        <linearGradient
+                                          id="memberGrowthFill"
+                                          x1="0"
+                                          y1="0"
+                                          x2="0"
+                                          y2="1"
+                                        >
+                                          <stop
+                                            offset="0%"
+                                            stopColor="#2e6bff"
+                                            stopOpacity={0.45}
+                                          />
+                                          <stop
+                                            offset="100%"
+                                            stopColor="#2e6bff"
+                                            stopOpacity={0.03}
+                                          />
+                                        </linearGradient>
+                                      </defs>
+                                      <XAxis
+                                        dataKey="month"
+                                        tick={axisTick}
+                                        stroke={gridStroke}
+                                        tickLine={false}
+                                        axisLine={false}
+                                      />
+                                      <YAxis
+                                        allowDecimals={false}
+                                        width={28}
+                                        tick={axisTick}
+                                        stroke={gridStroke}
+                                        tickLine={false}
+                                        axisLine={false}
+                                      />
+                                      <CartesianGrid stroke={gridStroke} vertical={false} />
+                                      <Tooltip content={<GlassChartTooltip />} />
+                                      <Area
+                                        type="monotone"
+                                        dataKey="cumulative"
+                                        name="Members"
+                                        stroke="#2e6bff"
+                                        strokeWidth={2}
+                                        fill="url(#memberGrowthFill)"
+                                        dot={{ r: 3, fill: "#2e6bff" }}
+                                        activeDot={{ r: 5 }}
+                                        isAnimationActive={!reduced}
+                                        animationDuration={800}
+                                        animationEasing="ease-out"
+                                      />
+                                    </AreaChart>
+                                  </ResponsiveContainer>
+                                </div>
+                              )}
+                              <p className="mx-2 mt-1 text-[11px] font-semibold text-[#94a3c8]">
+                                Cumulative member count by month
                               </p>
-                              <div className="mt-1 h-56">
-                                {stats.members.by_level.length === 0 ? (
-                                  <EmptyHint>No data yet.</EmptyHint>
-                                ) : (
+                            </div>
+                          </section>
+                        </DashSection>
+                      )}
+
+                      {/* ── 3 · Members by level — donut with center total ── */}
+                      {canAccess("members") && (
+                        <DashSection delay={0.14} className="md:col-span-6 lg:col-span-4">
+                          <section className="admin-glass rounded-3xl p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#2e6bff]/30 hover:shadow-[0_18px_40px_-18px_rgba(46,107,255,0.45)] md:p-6">
+                            <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                              Members by level
+                            </p>
+                            <div className="mt-3 h-56">
+                              {stats.members.by_level.length === 0 ? (
+                                <EmptyHint>No data yet.</EmptyHint>
+                              ) : (
+                                <div className="relative h-full">
                                   <ResponsiveContainer width="100%" height="100%">
                                     <PieChart>
                                       <Pie
                                         data={stats.members.by_level}
                                         dataKey="value"
                                         nameKey="level"
-                                        innerRadius={45}
-                                        outerRadius={75}
-                                        paddingAngle={2}
+                                        innerRadius={46}
+                                        outerRadius={72}
+                                        paddingAngle={3}
+                                        cornerRadius={5}
+                                        isAnimationActive={!reduced}
+                                        animationDuration={700}
+                                        animationEasing="ease-out"
+                                        animationBegin={120}
                                       >
                                         {stats.members.by_level.map((entry, i) => (
                                           <Cell
@@ -1334,320 +1665,362 @@ function AdminPage() {
                                           />
                                         ))}
                                       </Pie>
-                                      <Tooltip contentStyle={chartTooltipStyle} />
+                                      <Tooltip content={<GlassChartTooltip />} />
                                       <Legend
                                         wrapperStyle={{
                                           color: "#c7d2fe",
                                           fontSize: 12,
                                           fontWeight: 600,
                                         }}
+                                        iconSize={8}
                                       />
                                     </PieChart>
                                   </ResponsiveContainer>
+                                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                                    <p className="font-display text-2xl font-bold text-white">
+                                      {stats.members.by_level.reduce(
+                                        (sum, entry) => sum + entry.value,
+                                        0,
+                                      )}
+                                    </p>
+                                    <p className="text-[10px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                                      Members
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </section>
+                        </DashSection>
+                      )}
+
+                      {/* ── 4 · Members by department ── */}
+                      {canAccess("members") && (
+                        <DashSection delay={0.2} className="md:col-span-6 lg:col-span-4">
+                          <section className="admin-glass rounded-3xl p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#2e6bff]/30 hover:shadow-[0_18px_40px_-18px_rgba(46,107,255,0.45)] md:p-6">
+                            <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                              Members by department
+                            </p>
+                            <div className="mt-3 h-56">
+                              {stats.members.by_department.length === 0 ? (
+                                <EmptyHint>No data yet.</EmptyHint>
+                              ) : (
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <BarChart data={stats.members.by_department}>
+                                    <defs>
+                                      <linearGradient id="deptBarFill" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#2e6bff" />
+                                        <stop
+                                          offset="100%"
+                                          stopColor="#2e6bff"
+                                          stopOpacity={0.45}
+                                        />
+                                      </linearGradient>
+                                    </defs>
+                                    <XAxis
+                                      dataKey="department"
+                                      tick={axisTick}
+                                      interval={0}
+                                      stroke={gridStroke}
+                                      tickLine={false}
+                                      axisLine={false}
+                                    />
+                                    <YAxis
+                                      allowDecimals={false}
+                                      width={28}
+                                      tick={axisTick}
+                                      stroke={gridStroke}
+                                      tickLine={false}
+                                      axisLine={false}
+                                    />
+                                    <Tooltip
+                                      content={<GlassChartTooltip />}
+                                      cursor={{ fill: "rgba(46,107,255,0.15)" }}
+                                    />
+                                    <Bar
+                                      dataKey="value"
+                                      fill="url(#deptBarFill)"
+                                      radius={[6, 6, 0, 0]}
+                                      maxBarSize={36}
+                                      isAnimationActive={!reduced}
+                                      animationDuration={700}
+                                      animationEasing="ease-out"
+                                    />
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              )}
+                            </div>
+                          </section>
+                        </DashSection>
+                      )}
+
+                      {/* ── 3 · Registrations analytics — stage funnel ── */}
+                      {canAccess("registrations") && (
+                        <DashSection delay={0.26} className="md:col-span-6 lg:col-span-8">
+                          <section className="admin-glass rounded-3xl p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#2e6bff]/30 hover:shadow-[0_18px_40px_-18px_rgba(46,107,255,0.45)] md:p-6">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                                Registrations analytics
+                              </h2>
+                              <span
+                                className={`rounded-full border px-3 py-1 text-[11px] font-extrabold uppercase ${
+                                  stats.registrations.acceptance_rate === null
+                                    ? "border-white/10 bg-white/5 text-[#94a3c8]"
+                                    : "border-[#34d399]/30 bg-[#34d399]/10 text-[#6ee7b7]"
+                                }`}
+                              >
+                                {stats.registrations.acceptance_rate === null
+                                  ? "No decisions yet"
+                                  : `${stats.registrations.acceptance_rate}% accepted`}
+                              </span>
+                            </div>
+
+                            {stats.registrations.campaigns.length === 0 ? (
+                              <div className="mt-4">
+                                <EmptyHint>
+                                  No open registration campaigns yet — open one from the
+                                  Registrations tab.
+                                </EmptyHint>
+                              </div>
+                            ) : (
+                              <div className="mt-4">
+                                <RegistrationsFunnel campaigns={stats.registrations.campaigns} />
+                                <div className="mt-4 space-y-2.5 border-t border-white/10 pt-4">
+                                  {campaignChartData(stats.registrations.campaigns).map(
+                                    (campaign) => {
+                                      const rate =
+                                        campaign.submitted > 0
+                                          ? Math.round(
+                                              (campaign.checked_in / campaign.submitted) * 100,
+                                            )
+                                          : 0;
+                                      return (
+                                        <div key={campaign.id} className="flex items-center gap-3">
+                                          <span
+                                            className="w-44 shrink-0 truncate text-xs font-bold text-white"
+                                            title={campaign.title}
+                                          >
+                                            {campaign.shortTitle}
+                                          </span>
+                                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
+                                            <div
+                                              className="h-full rounded-full bg-[#38bdf8]"
+                                              style={{ width: `${rate}%` }}
+                                            />
+                                          </div>
+                                          <span className="shrink-0 text-[11px] font-semibold text-[#94a3c8]">
+                                            {campaign.checked_in}/{campaign.submitted} checked in
+                                          </span>
+                                        </div>
+                                      );
+                                    },
+                                  )}
+                                </div>
+                                {stats.registrations.campaigns.length <
+                                  stats.registrations.open_campaigns && (
+                                  <p className="mx-2 mt-3 text-[11px] font-semibold text-[#94a3c8]">
+                                    Showing {stats.registrations.campaigns.length} of{" "}
+                                    {stats.registrations.open_campaigns} open campaigns
+                                  </p>
                                 )}
+                              </div>
+                            )}
+                          </section>
+                        </DashSection>
+                      )}
+
+                      {/* ── 4 · Events analytics — gradient area ── */}
+                      {canAccess("events") && (
+                        <DashSection delay={0.32} className="md:col-span-6 lg:col-span-7">
+                          <section className="admin-glass rounded-3xl p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#2e6bff]/30 hover:shadow-[0_18px_40px_-18px_rgba(46,107,255,0.45)] md:p-6">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                                Events analytics
+                              </h2>
+                              <div className="flex flex-wrap gap-2">
+                                <span className="rounded-full border border-[#2e6bff]/40 bg-[#2e6bff]/15 px-3 py-1 text-[11px] font-extrabold text-[#6fa0ff] uppercase">
+                                  {stats.events.published} published
+                                </span>
+                                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-extrabold text-[#94a3c8] uppercase">
+                                  {stats.events.drafts} drafts
+                                </span>
                               </div>
                             </div>
 
-                            <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
-                              <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                                Members by department
-                              </p>
-                              <div className="mt-1 h-56">
-                                {stats.members.by_department.length === 0 ? (
-                                  <EmptyHint>No data yet.</EmptyHint>
-                                ) : (
+                            {stats.events.by_month.every((e) => e.count === 0) ? (
+                              <div className="mt-4">
+                                <EmptyHint>
+                                  No events yet — create one from the Events tab.
+                                </EmptyHint>
+                              </div>
+                            ) : (
+                              <div className="mt-4">
+                                <div className="h-52">
                                   <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={stats.members.by_department}>
+                                    <AreaChart data={stats.events.by_month}>
+                                      <defs>
+                                        <linearGradient
+                                          id="eventFreqFill"
+                                          x1="0"
+                                          y1="0"
+                                          x2="0"
+                                          y2="1"
+                                        >
+                                          <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.4} />
+                                          <stop
+                                            offset="100%"
+                                            stopColor="#38bdf8"
+                                            stopOpacity={0.03}
+                                          />
+                                        </linearGradient>
+                                      </defs>
                                       <XAxis
-                                        dataKey="department"
+                                        dataKey="month"
                                         tick={axisTick}
-                                        interval={0}
                                         stroke={gridStroke}
+                                        tickLine={false}
+                                        axisLine={false}
                                       />
                                       <YAxis
                                         allowDecimals={false}
                                         width={28}
                                         tick={axisTick}
                                         stroke={gridStroke}
+                                        tickLine={false}
+                                        axisLine={false}
                                       />
-                                      <Tooltip
-                                        contentStyle={chartTooltipStyle}
-                                        cursor={{ fill: "rgba(46,107,255,0.15)" }}
+                                      <CartesianGrid stroke={gridStroke} vertical={false} />
+                                      <Tooltip content={<GlassChartTooltip />} />
+                                      <Area
+                                        type="monotone"
+                                        dataKey="count"
+                                        name="Events"
+                                        stroke="#38bdf8"
+                                        strokeWidth={2}
+                                        fill="url(#eventFreqFill)"
+                                        dot={{ r: 3, fill: "#38bdf8" }}
+                                        activeDot={{ r: 5 }}
+                                        isAnimationActive={!reduced}
+                                        animationDuration={800}
+                                        animationEasing="ease-out"
                                       />
-                                      <Bar dataKey="value" fill="#2e6bff" radius={[4, 4, 0, 0]} />
-                                    </BarChart>
+                                    </AreaChart>
                                   </ResponsiveContainer>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </section>
-                      )}
-
-                      {/* ── 3 · Registrations analytics ── */}
-                      {canAccess("registrations") && (
-                        <section className="admin-glass rounded-3xl p-5 md:p-6">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
-                              Registrations analytics
-                            </h2>
-                            <span
-                              className={`rounded-full border px-3 py-1 text-[11px] font-extrabold uppercase ${
-                                stats.registrations.acceptance_rate === null
-                                  ? "border-white/10 bg-white/5 text-[#94a3c8]"
-                                  : "border-[#34d399]/30 bg-[#34d399]/10 text-[#6ee7b7]"
-                              }`}
-                            >
-                              {stats.registrations.acceptance_rate === null
-                                ? "No decisions yet"
-                                : `${stats.registrations.acceptance_rate}% accepted`}
-                            </span>
-                          </div>
-
-                          {stats.registrations.campaigns.length === 0 ? (
-                            <div className="mt-4">
-                              <EmptyHint>
-                                No open registration campaigns yet — open one from the Registrations
-                                tab.
-                              </EmptyHint>
-                            </div>
-                          ) : (
-                            <div className="mt-4">
-                              <div className="h-56">
-                                <ResponsiveContainer width="100%" height="100%">
-                                  <BarChart
-                                    data={campaignChartData(stats.registrations.campaigns)}
-                                    layout="vertical"
-                                    margin={{ left: 0, right: 8 }}
-                                  >
-                                    <XAxis
-                                      type="number"
-                                      allowDecimals={false}
-                                      tick={axisTick}
-                                      stroke={gridStroke}
-                                    />
-                                    <YAxis
-                                      type="category"
-                                      dataKey="shortTitle"
-                                      width={140}
-                                      tick={axisTick}
-                                      stroke={gridStroke}
-                                      interval={0}
-                                    />
-                                    <Tooltip
-                                      contentStyle={chartTooltipStyle}
-                                      cursor={{ fill: "rgba(46,107,255,0.15)" }}
-                                    />
-                                    <Legend
-                                      wrapperStyle={{
-                                        color: "#c7d2fe",
-                                        fontSize: 12,
-                                        fontWeight: 600,
-                                      }}
-                                    />
-                                    <Bar
-                                      dataKey="pending"
-                                      stackId="s"
-                                      name="Pending"
-                                      fill="#2e6bff"
-                                      barSize={22}
-                                    />
-                                    <Bar
-                                      dataKey="accepted"
-                                      stackId="s"
-                                      name="Accepted"
-                                      fill="#34d399"
-                                      barSize={22}
-                                    />
-                                    <Bar
-                                      dataKey="removed"
-                                      stackId="s"
-                                      name="Removed"
-                                      fill="#f43f5e"
-                                      barSize={22}
-                                      radius={[0, 3, 3, 0]}
-                                    />
-                                  </BarChart>
-                                </ResponsiveContainer>
-                              </div>
-                              <RegistrationsCaption campaigns={stats.registrations.campaigns} />
-                              {stats.registrations.campaigns.length <
-                                stats.registrations.open_campaigns && (
+                                </div>
                                 <p className="mx-2 mt-1 text-[11px] font-semibold text-[#94a3c8]">
-                                  Showing {stats.registrations.campaigns.length} of{" "}
-                                  {stats.registrations.open_campaigns} open campaigns
+                                  Events by month — last 6 months
                                 </p>
-                              )}
-                            </div>
-                          )}
-                        </section>
-                      )}
-
-                      {/* ── 4 · Events analytics ── */}
-                      {canAccess("events") && (
-                        <section className="admin-glass rounded-3xl p-5 md:p-6">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
-                              Events analytics
-                            </h2>
-                            <div className="flex flex-wrap gap-2">
-                              <span className="rounded-full border border-[#2e6bff]/40 bg-[#2e6bff]/15 px-3 py-1 text-[11px] font-extrabold text-[#6fa0ff] uppercase">
-                                {stats.events.published} published
-                              </span>
-                              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-extrabold text-[#94a3c8] uppercase">
-                                {stats.events.drafts} drafts
-                              </span>
-                            </div>
-                          </div>
-
-                          {stats.events.by_month.every((e) => e.count === 0) ? (
-                            <div className="mt-4">
-                              <EmptyHint>No events yet — create one from the Events tab.</EmptyHint>
-                            </div>
-                          ) : (
-                            <div className="mt-4">
-                              <div className="h-56">
-                                <ResponsiveContainer width="100%" height="100%">
-                                  <LineChart data={stats.events.by_month}>
-                                    <XAxis dataKey="month" tick={axisTick} stroke={gridStroke} />
-                                    <YAxis
-                                      allowDecimals={false}
-                                      width={28}
-                                      tick={axisTick}
-                                      stroke={gridStroke}
-                                    />
-                                    <CartesianGrid stroke={gridStroke} vertical={false} />
-                                    <Tooltip contentStyle={chartTooltipStyle} />
-                                    <Legend
-                                      wrapperStyle={{
-                                        color: "#c7d2fe",
-                                        fontSize: 12,
-                                        fontWeight: 600,
-                                      }}
-                                    />
-                                    <Line
-                                      type="monotone"
-                                      dataKey="count"
-                                      name="Events"
-                                      stroke="#2e6bff"
-                                      strokeWidth={2}
-                                      dot={{ r: 3, fill: "#2e6bff" }}
-                                      activeDot={{ r: 5 }}
-                                    />
-                                  </LineChart>
-                                </ResponsiveContainer>
                               </div>
-                              <p className="mx-2 mt-1 text-[11px] font-semibold text-[#94a3c8]">
-                                Events by month — last 6 months
-                              </p>
-                            </div>
-                          )}
-                        </section>
+                            )}
+                          </section>
+                        </DashSection>
                       )}
 
                       {/* ── 5 · Admin & team ── */}
-                      <section className="admin-glass rounded-3xl p-5 md:p-6">
-                        <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
-                          Admin & team
-                        </h2>
+                      <DashSection delay={0.32} className="md:col-span-6 lg:col-span-12">
+                        <section className="admin-glass rounded-3xl p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#2e6bff]/30 hover:shadow-[0_18px_40px_-18px_rgba(46,107,255,0.45)] md:p-6">
+                          <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                            Admin & team
+                          </h2>
 
-                        <div className="mt-4 grid gap-4 md:grid-cols-2">
-                          <div>
-                            <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                              Active admins
-                            </p>
-                            <p className="mt-2 font-display text-3xl font-bold text-[#6fa0ff]">
-                              {stats.admins.active_total}
-                            </p>
-                            <p className="mt-1 text-[11px] font-semibold text-[#94a3c8]">
-                              {stats.admins.total} admin account
-                              {stats.admins.total === 1 ? "" : "s"} registered
-                            </p>
-                          </div>
-
-                          <div>
-                            <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                              By role
-                            </p>
-                            {stats.admins.by_role.length === 0 ? (
-                              <div className="mt-3">
-                                <EmptyHint>No active admins yet.</EmptyHint>
-                              </div>
-                            ) : (
-                              <div className="mt-3 space-y-2.5">
-                                {stats.admins.by_role.map((entry) => (
-                                  <div key={entry.role}>
-                                    <div className="flex items-center justify-between text-xs font-bold text-white">
-                                      <span>{prettyRole(entry.role)}</span>
-                                      <span className="text-[#94a3c8]">{entry.value}</span>
-                                    </div>
-                                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/5">
-                                      <div
-                                        className="h-1.5 rounded-full bg-[#2e6bff]"
-                                        style={{
-                                          width: `${
-                                            stats.admins.active_total > 0
-                                              ? (entry.value / stats.admins.active_total) * 100
-                                              : 0
-                                          }%`,
-                                        }}
-                                      />
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {isOwner && (
-                          <div className="mt-5 border-t border-white/10 pt-4">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <div>
                               <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
-                                Pending admin requests
+                                Active admins
                               </p>
-                              {stats.adminRequests.pending.length > 0 && (
-                                <button
-                                  onClick={() => setTab("admins")}
-                                  className="text-[11px] font-extrabold text-[#6fa0ff] transition hover:text-white"
-                                >
-                                  Manage in Admins
-                                </button>
+                              <p className="mt-2 font-display text-3xl font-bold text-[#6fa0ff]">
+                                {stats.admins.active_total}
+                              </p>
+                              <p className="mt-1 text-[11px] font-semibold text-[#94a3c8]">
+                                {stats.admins.total} admin account
+                                {stats.admins.total === 1 ? "" : "s"} registered
+                              </p>
+                            </div>
+
+                            <div>
+                              <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                                By role
+                              </p>
+                              {stats.admins.by_role.length === 0 ? (
+                                <div className="mt-3">
+                                  <EmptyHint>No active admins yet.</EmptyHint>
+                                </div>
+                              ) : (
+                                <div className="mt-3 space-y-2.5">
+                                  {stats.admins.by_role.map((entry) => (
+                                    <div key={entry.role}>
+                                      <div className="flex items-center justify-between text-xs font-bold text-white">
+                                        <span>{prettyRole(entry.role)}</span>
+                                        <span className="text-[#94a3c8]">{entry.value}</span>
+                                      </div>
+                                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/5">
+                                        <div
+                                          className="h-1.5 rounded-full bg-[#2e6bff]"
+                                          style={{
+                                            width: `${
+                                              stats.admins.active_total > 0
+                                                ? (entry.value / stats.admins.active_total) * 100
+                                                : 0
+                                            }%`,
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               )}
                             </div>
-                            {stats.adminRequests.pending.length === 0 ? (
-                              <p className="mt-3 text-sm font-semibold text-[#94a3c8]">
-                                No pending admin requests.
-                              </p>
-                            ) : (
-                              <ul className="mt-3 space-y-2">
-                                {stats.adminRequests.pending.map((request) => (
-                                  <li
-                                    key={request.id}
-                                    className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
-                                  >
-                                    <div className="min-w-0">
-                                      <p className="truncate text-sm font-bold text-white">
-                                        {request.name}
-                                      </p>
-                                      <p className="truncate text-xs font-semibold text-[#94a3c8]">
-                                        {request.email} · {prettyRole(request.role)}
-                                      </p>
-                                    </div>
-                                    <button
-                                      onClick={() => setTab("admins")}
-                                      className="clay-sm shrink-0 rounded-xl bg-[#2e6bff] px-3 py-1.5 text-xs font-extrabold text-white transition hover:bg-[#2e6bff]/90"
-                                    >
-                                      Review
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
                           </div>
-                        )}
-                      </section>
-                    </>
+
+                          {isOwner && (
+                            <div className="mt-5 border-t border-white/10 pt-4">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-[11px] font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                                  Pending admin requests
+                                </p>
+                                {stats.adminRequests.pending.length > 0 && (
+                                  <button
+                                    onClick={() => setTab("admins")}
+                                    className="text-[11px] font-extrabold text-[#6fa0ff] transition hover:text-white"
+                                  >
+                                    Manage in Admins
+                                  </button>
+                                )}
+                              </div>
+                              {stats.adminRequests.pending.length === 0 ? (
+                                <p className="mt-3 text-sm font-semibold text-[#94a3c8]">
+                                  No pending admin requests.
+                                </p>
+                              ) : (
+                                <ul className="mt-3 space-y-2">
+                                  {stats.adminRequests.pending.map((request) => (
+                                    <li
+                                      key={request.id}
+                                      className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                                    >
+                                      <div className="min-w-0">
+                                        <p className="truncate text-sm font-bold text-white">
+                                          {request.name}
+                                        </p>
+                                        <p className="truncate text-xs font-semibold text-[#94a3c8]">
+                                          {request.email} · {prettyRole(request.role)}
+                                        </p>
+                                      </div>
+                                      <button
+                                        onClick={() => setTab("admins")}
+                                        className="clay-sm shrink-0 rounded-xl bg-[#2e6bff] px-3 py-1.5 text-xs font-extrabold text-white transition hover:bg-[#2e6bff]/90"
+                                      >
+                                        Review
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+                        </section>
+                      </DashSection>
+                    </div>
                   )}
                 </div>
               )}

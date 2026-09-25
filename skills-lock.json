@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "migrate-radix-to-base": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/migrate-radix-to-base/SKILL.md",
+      "computedHash": "e1f2030ee5059be3dff0812ca0e4b995ee9fa3132176f049ebe6c90346a6755e"
+    },
+    "preline-mcp": {
+      "source": "htmlstreamofficial/preline",
+      "sourceType": "github",
+      "skillPath": "skills/preline-mcp/SKILL.md",
+      "computedHash": "da8611ecb548f0ec0c41f5853e338d4e28adebb51f3cf5d185e0dccf64aa6f4e"
+    },
+    "preline-theme-generator": {
+      "source": "htmlstreamofficial/preline",
+      "sourceType": "github",
+      "skillPath": "skills/theme-generator/SKILL.md",
+      "computedHash": "96aea980dbdd928f688f1d0ceb1ddf46f74a0d31c835c9e8c093a908eb867a5c"
+    },
+    "review-animations": {
+      "source": "emilkowalski/skills",
+      "sourceType": "github",
+      "skillPath": "skills/review-animations/SKILL.md",
+      "computedHash": "b4e5f0f4fe3e2743c85bf7354108f48a0b9d502cb20ef5c4a9c195da91f93736"
+    },
+    "shadcn": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "computedHash": "f615de216e085a84e31593ad0fa9062232adc40cd87b7c7ab2b8e49abf6500be"
+    }
+  }
+}

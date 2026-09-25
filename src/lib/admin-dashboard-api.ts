@@ -41,12 +41,14 @@ export type DashboardStats = {
   adminRequests: {
     pending_count: number;
     pending: { id: string; name: string; email: string; role: string; created_at: string }[];
+    by_month: { month: string; count: number }[];
   };
   registrations: {
     open_campaigns: number;
     pending_total: number;
     acceptance_rate: number | null;
     campaigns: DashboardCampaignFunnel[];
+    by_month: { month: string; submitted: number }[];
   };
   events: { by_month: { month: string; count: number }[]; published: number; drafts: number };
   admins: { active_total: number; total: number; by_role: { role: string; value: number }[] };
@@ -83,6 +85,7 @@ const EMPTY_REGISTRATIONS = {
   pending_total: 0,
   acceptance_rate: null,
   campaigns: [],
+  by_month: [],
 } satisfies DashboardStats["registrations"];
 
 const EMPTY_EVENTS = { by_month: [], published: 0, drafts: 0 } satisfies DashboardStats["events"];
@@ -126,7 +129,7 @@ async function aggregateLocally(db: unknown, flags: SectionFlags, isOwner: boole
 
   const stats: DashboardStats = {
     members: EMPTY_MEMBERS,
-    adminRequests: { pending_count: 0, pending: [] },
+    adminRequests: { pending_count: 0, pending: [], by_month: [] },
     registrations: EMPTY_REGISTRATIONS,
     events: EMPTY_EVENTS,
     admins: { active_total: 0, total: 0, by_role: [] },
@@ -213,7 +216,14 @@ async function aggregateLocally(db: unknown, flags: SectionFlags, isOwner: boole
       }))
       .sort((a, b) => a.created_at.localeCompare(b.created_at))
       .slice(0, 20);
-    stats.adminRequests = { pending_count: pending.length, pending };
+    stats.adminRequests = {
+      pending_count: pending.length,
+      pending,
+      by_month: monthlySeries(
+        6,
+        requestRows.map((row) => String(row["created_at"] ?? "")),
+      ),
+    };
   }
 
   if (flags.registrations) {
@@ -230,11 +240,12 @@ async function aggregateLocally(db: unknown, flags: SectionFlags, isOwner: boole
     }[];
     const registrationRows = (await rows(
       "registrations",
-      "campaign_id, status, checked_in",
+      "campaign_id, status, checked_in, created_at",
     )) as unknown as {
       campaign_id: string;
       status: string;
       checked_in: boolean;
+      created_at: string;
     }[];
 
     let pendingTotal = 0;
@@ -280,6 +291,10 @@ async function aggregateLocally(db: unknown, flags: SectionFlags, isOwner: boole
         acceptedTotal + removedTotal === 0
           ? null
           : Math.round((acceptedTotal / (acceptedTotal + removedTotal)) * 1000) / 10,
+      by_month: monthlySeries(
+        6,
+        registrationRows.map((row) => String(row["created_at"] ?? "")),
+      ).map((m) => ({ month: m.month, submitted: m.count })),
       campaigns: open.map((campaign) => ({
         ...(funnel.get(campaign.id) ?? {
           submitted: 0,

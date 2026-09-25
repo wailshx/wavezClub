@@ -1,11 +1,12 @@
+import { useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
 
 import { leaderInitials, type ClubLeader } from "@/lib/leaders";
 
 function LeaderCard({ leader }: { leader: ClubLeader }) {
   return (
-    <article className="leader-card">
-      <div className="relative h-56 overflow-hidden rounded-[1.35rem] bg-mint/20">
+    <article className="leader-unit">
+      <div className="leader-photo">
         {leader.image_url ? (
           <img
             src={leader.image_url}
@@ -19,12 +20,12 @@ function LeaderCard({ leader }: { leader: ClubLeader }) {
           </div>
         )}
       </div>
-      <p className="mt-4 truncate font-display text-xl font-bold">{leader.name}</p>
-      <p className="mt-1 truncate text-[13px] font-extrabold tracking-wide text-brand uppercase">
+      <p className="mt-6 max-w-full truncate font-display text-2xl font-bold">{leader.name}</p>
+      <p className="mt-1.5 max-w-full truncate text-[13px] font-extrabold tracking-wide text-brand uppercase">
         {leader.position}
       </p>
       {leader.description && (
-        <p className="mt-2.5 line-clamp-4 text-[15px] leading-snug font-semibold text-muted-foreground">
+        <p className="mt-3 line-clamp-3 text-[15px] leading-snug font-semibold text-muted-foreground">
           {leader.description}
         </p>
       )}
@@ -38,6 +39,25 @@ type LeadersCarouselProps = {
 
 export function LeadersCarousel({ leaders }: LeadersCarouselProps) {
   const reduced = useReducedMotion();
+  // Pause-on-touch: pressing the marquee (mouse or finger) stops the scroll so
+  // cards stay readable; it resumes shortly after the press ends. A vertical
+  // page swipe over the strip only pauses it — the resume timer handles that.
+  const [paused, setPaused] = useState(false);
+  const resumeTimer = useRef<number | null>(null);
+
+  const pause = () => {
+    setPaused(true);
+    if (resumeTimer.current !== null) window.clearTimeout(resumeTimer.current);
+    resumeTimer.current = null;
+  };
+
+  const scheduleResume = () => {
+    if (resumeTimer.current !== null) window.clearTimeout(resumeTimer.current);
+    resumeTimer.current = window.setTimeout(() => {
+      setPaused(false);
+      resumeTimer.current = null;
+    }, 3500);
+  };
 
   if (reduced) {
     return (
@@ -50,7 +70,15 @@ export function LeadersCarousel({ leaders }: LeadersCarouselProps) {
   }
 
   return (
-    <div className="leaders-marquee" role="region" aria-label="Club leadership">
+    <div
+      className={`leaders-marquee${paused ? " is-paused" : ""}`}
+      role="region"
+      aria-label="Club leadership"
+      onPointerDown={pause}
+      onPointerUp={scheduleResume}
+      onPointerCancel={scheduleResume}
+      onPointerLeave={scheduleResume}
+    >
       <div className="leaders-rail">
         <div className="leaders-group">
           {leaders.map((leader) => (
