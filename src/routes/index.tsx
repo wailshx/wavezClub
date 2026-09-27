@@ -1,4 +1,4 @@
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Pin } from "lucide-react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -340,66 +340,97 @@ function Index() {
             </p>
           </div>
         ) : (
-          <div className="mt-10 max-w-4xl">
+          <div className="mt-10">
             {feed.map((post, index) => {
               const isFeatured = index === 0;
+              const isEvent = post.kind === "event";
+              // An event with a live campaign is a registration, not a notice —
+              // the badge has to say so before anyone reads the title.
+              const isRegistration = isFeatured && isEvent && hasOpenCampaigns;
+              const kindLabel = isRegistration
+                ? "Registration open"
+                : isEvent
+                  ? "Event"
+                  : isFeatured
+                    ? "Announcement"
+                    : "News";
+              const kindClass = isRegistration
+                ? "bg-brand text-primary-foreground"
+                : isEvent
+                  ? "bg-brand/15 text-brand"
+                  : "bg-mint/25 text-mint-foreground";
               return (
                 <ScrollReveal key={post.id} delay={Math.min(0.08 * index, 0.24)} scale>
-                  <article
-                    className={`group hover-glow ${
-                      isFeatured ? "pt-2 pb-14" : "border-t border-foreground/10 py-12"
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                      <span
-                        className={`text-xs font-extrabold tracking-widest uppercase ${
-                          post.kind === "event" ? "text-brand" : "text-mint-foreground"
-                        } ${isFeatured ? "rounded-full bg-brand/15 px-4 py-1.5" : ""}`}
-                      >
-                        {post.kind === "event" ? "Event" : "News"}
-                      </span>
-                      {isFeatured && post.event_date && (
-                        <EventCountdown eventDate={post.event_date} />
-                      )}
-                      {post.event_date && (
-                        <span className="inline-flex items-center gap-2 text-xs font-bold text-muted-foreground">
-                          {isUpcomingSoon(post.event_date) && <PulseDot />}
-                          <span>📅 {formatDate(post.event_date)}</span>
+                  {isFeatured ? (
+                    <article className="group hover-glow rounded-3xl border border-brand/20 bg-card p-6 shadow-sm transition-transform duration-200 ease-out hover:pointer-fine:-translate-y-1 md:p-10">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+                        <span className="grid size-12 shrink-0 place-items-center rounded-full bg-brand/15 text-brand">
+                          <Pin aria-hidden="true" className="size-6 -rotate-12" />
                         </span>
-                      )}
-                    </div>
-                    <h3
-                      className={`mt-4 font-display leading-tight font-bold transition-colors duration-200 group-hover:text-brand ${
-                        isFeatured ? "text-3xl md:text-5xl" : "text-2xl md:text-3xl"
-                      }`}
-                    >
-                      {post.title}
-                    </h3>
-                    {post.location && (
-                      <p className="mt-2 text-sm font-bold text-brand">📍 {post.location}</p>
-                    )}
-                    <p
-                      className={`mt-4 max-w-3xl leading-relaxed font-semibold whitespace-pre-line text-foreground/75 ${
-                        isFeatured ? "text-base md:text-lg" : "text-[15px]"
-                      }`}
-                    >
-                      {post.body}
-                    </p>
-                    {isFeatured && post.event_date && isUpcomingSoon(post.event_date) && (
-                      <div className="mt-8">
-                        <a
-                          href="#join"
-                          className="cta-pulse clay-md group inline-flex items-center gap-2 rounded-2xl bg-brand px-7 py-3.5 text-base font-bold text-primary-foreground transition-transform duration-200 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+                        <span
+                          className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-extrabold tracking-widest uppercase ${kindClass}`}
                         >
-                          {hasOpenCampaigns ? "Register now" : "Open registrations"}
-                          <ArrowRight
-                            aria-hidden="true"
-                            className="size-5 transition-transform duration-200 group-hover:translate-x-1"
-                          />
-                        </a>
+                          {isRegistration && <PulseDot />}
+                          {kindLabel}
+                        </span>
+                        {post.event_date && <EventCountdown eventDate={post.event_date} />}
+                        {post.event_date && (
+                          <span className="inline-flex items-center gap-2 text-sm font-bold text-muted-foreground">
+                            {isUpcomingSoon(post.event_date) && <PulseDot />}
+                            <span>📅 {formatDate(post.event_date)}</span>
+                          </span>
+                        )}
                       </div>
-                    )}
-                  </article>
+                      <h3 className="mt-6 max-w-4xl font-display text-3xl leading-tight font-bold text-brand-deep transition-colors duration-200 group-hover:text-brand md:text-5xl">
+                        {post.title}
+                      </h3>
+                      {post.location && (
+                        <p className="mt-3 text-base font-bold text-brand">📍 {post.location}</p>
+                      )}
+                      <p className="mt-5 max-w-3xl text-base leading-relaxed font-semibold whitespace-pre-line text-foreground/80 md:text-lg">
+                        {post.body}
+                      </p>
+                      {isRegistration && (
+                        <div className="mt-8">
+                          <a
+                            href="#join"
+                            className="cta-pulse clay-md group inline-flex items-center gap-2 rounded-2xl bg-brand px-8 py-4 text-lg font-bold text-primary-foreground transition-transform duration-200 hover:pointer-fine:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+                          >
+                            Register now
+                            <ArrowRight
+                              aria-hidden="true"
+                              className="size-5 transition-transform duration-200 group-hover:translate-x-1"
+                            />
+                          </a>
+                        </div>
+                      )}
+                    </article>
+                  ) : (
+                    <article className="group border-t border-foreground/10 py-12">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-extrabold tracking-widest uppercase ${kindClass}`}
+                        >
+                          {kindLabel}
+                        </span>
+                        {post.event_date && (
+                          <span className="inline-flex items-center gap-2 text-xs font-bold text-muted-foreground">
+                            {isUpcomingSoon(post.event_date) && <PulseDot />}
+                            <span>📅 {formatDate(post.event_date)}</span>
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="mt-4 font-display text-2xl leading-tight font-bold transition-colors duration-200 group-hover:text-brand md:text-3xl">
+                        {post.title}
+                      </h3>
+                      {post.location && (
+                        <p className="mt-2 text-sm font-bold text-brand">📍 {post.location}</p>
+                      )}
+                      <p className="mt-4 max-w-3xl text-[15px] leading-relaxed font-semibold whitespace-pre-line text-foreground/75">
+                        {post.body}
+                      </p>
+                    </article>
+                  )}
                 </ScrollReveal>
               );
             })}

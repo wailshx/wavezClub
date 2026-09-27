@@ -28,7 +28,7 @@ const SOCIALS = [
   {
     name: "Instagram",
     href: "https://www.instagram.com/wavez.club?stkn=dzFuYjB1Y3ZiOXR0",
-    path: "M224.1 141c-63.6 0-114.9 51.3-114.9 114.9s51.3 114.9 114.9 114.9S339 319.5 339 255.9 287.7 141 224.1 141zm0 189.6c-41.1 0-74.7-33.5-74.7-74.7s33.5-74.7 74.7-74.7 74.7 33.5 74.7 74.7 74.7-33.6 74.7-74.7 74.7zm146.4-194.3c0 14.9-12 26.8-26.8 26.8-14.9 0-26.8-12-26.8-26.8s12-26.8 26.8-26.8 26.8 12 26.8 26.8zm76.1 27.2c-1.7-35.9-9.9-67.7-36.2-93.9-26.2-26.2-58-34.4-93.9-36.2-37-2.1-147.9-2.1-184.9 0-35.8 1.7-67.6 9.9-93.9 36.1s-34.4 58-36.2 93.9c-2.1 37-2.1 147.9 0 184.9 1.7 35.9 9.9 67.7 36.2 93.9s58 34.4 93.9 36.2c37 2.1 147.9 2.1 184.9 0 35.9-1.7 67.7-9.9 93.9-36.2 26.2-26.2 34.4-58 36.2-93.9 2.1-37 2.1-147.8 0-184.8zM398.8 388c-7.8 19.6-22.9 34.7-42.6 42.6-29.5 11.7-99.5 9-132.1 9s-102.7 2.6-132.1-9c-19.6-7.8-34.7-22.9-42.6-42.6-11.7-29.5-9-99.5-9-132.1s-2.6-102.7 9-132.1c7.8-19.6 22.9-34.7 42.6-42.6 29.5-11.7 99.5-9 132.1-9s102.7-2.6 132.1 9c19.6 7.8 34.7 22.9 42.6 42.6 11.7 29.5 9 99.5 9 132.1s2.7 102.7-9 132.1z",
+    path: "M224.1 141c-63.6 0-114.9 51.3-114.9 114.9s51.3 114.9 114.9 114.9S339 319.5 339 255.9 287.7 141 224.1 141zm0 189.6c-41.1 0-74.7-33.5-74.7-74.7s33.5-74.7 74.7-74.7 74.7 33.5 74.7 74.7-33.6 74.7-74.7 74.7zm146.4-194.3c0 14.9-12 26.8-26.8 26.8-14.9 0-26.8-12-26.8-26.8s12-26.8 26.8-26.8 26.8 12 26.8 26.8zm76.1 27.2c-1.7-35.9-9.9-67.7-36.2-93.9-26.2-26.2-58-34.4-93.9-36.2-37-2.1-147.9-2.1-184.9 0-35.8 1.7-67.6 9.9-93.9 36.1s-34.4 58-36.2 93.9c-2.1 37-2.1 147.9 0 184.9 1.7 35.9 9.9 67.7 36.2 93.9s58 34.4 93.9 36.2c37 2.1 147.9 2.1 184.9 0 35.9-1.7 67.7-9.9 93.9-36.2 26.2-26.2 34.4-58 36.2-93.9 2.1-37 2.1-147.8 0-184.8zM398.8 388c-7.8 19.6-22.9 34.7-42.6 42.6-29.5 11.7-99.5 9-132.1 9s-102.7 2.6-132.1-9c-19.6-7.8-34.7-22.9-42.6-42.6-11.7-29.5-9-99.5-9-132.1s-2.6-102.7 9-132.1c7.8-19.6 22.9-34.7 42.6-42.6 29.5-11.7 99.5-9 132.1-9s102.7-2.6 132.1 9c19.6 7.8 34.7 22.9 42.6 42.6 11.7 29.5 9 99.5 9 132.1s2.7 102.7-9 132.1z",
   },
   {
     name: "Facebook",
@@ -38,39 +38,39 @@ const SOCIALS = [
 ] as const;
 
 const LINK_CLASS =
-  "inline-flex min-h-11 items-center rounded-xl px-3 py-3 text-sm font-bold text-foreground/70 transition-colors hover:text-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2";
+  "inline-flex min-h-10 items-center rounded-xl px-3 py-1.5 text-sm font-bold text-foreground/70 transition-colors hover:text-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2";
 
 export function SiteFooter() {
   const year = new Date().getFullYear();
 
   return (
     <footer className="border-t border-brand/10 bg-card/40">
-      <div className="mx-auto max-w-6xl px-5 py-16 md:py-20">
+      <div className="mx-auto max-w-6xl px-5 py-8 md:py-12">
         {/* Final call-to-action — the last chance to steer a leaving visitor. */}
-        <div className="flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
-          <div className="max-w-xl">
-            <h2 className="font-display text-3xl leading-tight font-bold text-brand-deep md:text-4xl">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+          <div>
+            <h2 className="font-display text-2xl leading-tight font-bold text-brand-deep">
               Ready to join the wave?
             </h2>
-            <p className="mt-3 text-lg font-semibold text-foreground/70">
+            <p className="mt-1.5 text-sm font-semibold text-foreground/70">
               Open registrations are live — pick a campaign and apply in minutes.
             </p>
           </div>
           <Link
             to="/"
             hash="join"
-            className="cta-pulse clay-md group inline-flex w-fit items-center gap-2 rounded-2xl bg-brand px-8 py-4 text-base font-bold text-primary-foreground transition-transform duration-200 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+            className="cta-pulse clay-md group inline-flex w-fit items-center gap-2 rounded-2xl bg-brand px-6 py-3 text-sm font-bold text-primary-foreground transition-transform duration-200 hover:pointer-fine:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
           >
             Apply now
             <ArrowRight
               aria-hidden="true"
-              className="size-5 transition-transform duration-200 group-hover:translate-x-1"
+              className="size-4 transition-transform duration-200 group-hover:translate-x-1"
             />
           </Link>
         </div>
 
         {/* Columns — focal brand block, then organized quick links + socials. */}
-        <div className="mt-14 grid gap-12 border-t border-brand/10 pt-14 md:grid-cols-[minmax(0,5fr)_minmax(0,3fr)_minmax(0,4fr)] md:gap-10">
+        <div className="mt-7 grid gap-6 border-t border-brand/10 pt-7 md:grid-cols-[minmax(0,5fr)_minmax(0,3fr)_minmax(0,4fr)] md:gap-8 md:pt-8">
           {/* Focal column — logo + tagline + direct contact (single touchpoint). */}
           <div>
             <Link
@@ -78,19 +78,18 @@ export function SiteFooter() {
               aria-label="Wavez Club home"
               className="inline-block rounded-2xl focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
             >
-              <img src={logo} alt="Wavez Club logo" width={112} height={112} className="shrink-0" />
+              <img src={logo} alt="Wavez Club logo" width={56} height={56} className="shrink-0" />
             </Link>
-            <p className="mt-5 font-display text-xl leading-snug font-bold text-brand-deep">
+            <p className="mt-3 font-display text-lg leading-snug font-bold text-brand-deep">
               Ride the wave. Build the future.
             </p>
-            <p className="mt-3 max-w-sm text-[17px] leading-relaxed font-semibold text-foreground/75">
-              WaveZ Scientific Club is a student-led scientific and technological community at
-              Université Djilali Liabès of Sidi Bel Abbès — turning classroom theory into real
-              projects, workshops and competitions.
+            <p className="mt-2 max-w-sm text-sm leading-relaxed font-semibold text-foreground/75">
+              A student-led scientific and technological community at Université Djilali Liabès of
+              Sidi Bel Abbès.
             </p>
             <a
               href={`mailto:${CLUB_EMAIL}`}
-              className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-brand transition-colors hover:text-brand-deep focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+              className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-bold text-brand transition-colors hover:text-brand-deep focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
             >
               <Mail className="size-4 shrink-0" aria-hidden="true" />
               {CLUB_EMAIL}
@@ -102,7 +101,7 @@ export function SiteFooter() {
             <h3 className="text-xs font-extrabold tracking-widest text-muted-foreground uppercase">
               Explore
             </h3>
-            <ul className="mt-4 flex flex-col gap-1">
+            <ul className="mt-2 flex flex-col">
               {EXPLORE_LINKS.map((item) => (
                 <li key={item.label}>
                   <Link
@@ -123,7 +122,7 @@ export function SiteFooter() {
               <h3 className="text-xs font-extrabold tracking-widest text-muted-foreground uppercase">
                 Get involved
               </h3>
-              <ul className="mt-4 flex flex-col gap-1">
+              <ul className="mt-2 flex flex-col">
                 <li>
                   <Link to="/" hash="join" className={LINK_CLASS}>
                     Register for a campaign
@@ -136,10 +135,10 @@ export function SiteFooter() {
                 </li>
               </ul>
             </div>
-            <h3 className="mt-8 text-xs font-extrabold tracking-widest text-muted-foreground uppercase">
+            <h3 className="mt-5 text-xs font-extrabold tracking-widest text-muted-foreground uppercase">
               Connect
             </h3>
-            <div className="mt-4 flex items-center gap-3">
+            <div className="mt-2 flex items-center gap-2">
               {SOCIALS.map((social) => (
                 <a
                   key={social.name}
@@ -148,9 +147,9 @@ export function SiteFooter() {
                   rel="noopener noreferrer"
                   aria-label={social.name}
                   title={social.name}
-                  className="grid size-12 place-items-center rounded-full border border-foreground/25 text-foreground/55 transition-all duration-200 hover:scale-105 hover:border-brand hover:text-brand hover:shadow-[0_12px_30px_-12px_rgba(37,99,235,0.55)] focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+                  className="grid size-10 place-items-center rounded-full border border-foreground/25 text-foreground/55 transition-[transform,border-color,color,box-shadow] duration-200 hover:pointer-fine:scale-105 hover:border-brand hover:text-brand hover:shadow-[0_12px_30px_-12px_rgba(37,99,235,0.55)] focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
                 >
-                  <svg viewBox="0 0 448 512" aria-hidden="true" className="size-5 fill-current">
+                  <svg viewBox="0 0 448 512" aria-hidden="true" className="size-4 fill-current">
                     <path d={social.path} />
                   </svg>
                 </a>
@@ -160,7 +159,7 @@ export function SiteFooter() {
         </div>
 
         {/* Bottom bar — tidy, no dead space. */}
-        <div className="mt-12 flex flex-col items-center gap-2 border-t border-foreground/10 pt-6 text-center sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:text-left">
+        <div className="mt-7 flex flex-col items-center gap-1 border-t border-foreground/10 pt-4 sm:pt-5 text-center sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:text-left">
           <p className="text-xs font-semibold text-muted-foreground">
             © {year} Wavez Club. All rights reserved.
           </p>
