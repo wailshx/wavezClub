@@ -7,7 +7,15 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist", ".output", ".vinxi", ".agents", "agent", "src/integrations/supabase/**"],
+    ignores: [
+      "dist",
+      ".output",
+      ".vercel",
+      ".vinxi",
+      ".agents",
+      "agent",
+      "src/integrations/supabase/**",
+    ],
   },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
