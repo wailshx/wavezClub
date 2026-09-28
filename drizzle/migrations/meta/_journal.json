@@ -134,6 +134,13 @@
       "when": 1790700000000,
       "tag": "0018_members_unique_email",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790800000000,
+      "tag": "0019_remap_faculty_fields",
+      "breakpoints": true
     }
   ]
 }

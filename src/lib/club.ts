@@ -13,10 +13,10 @@ export const SPECIALITIES = [
 ] as const;
 
 export const DEPARTMENTS = [
-  "Electrical Engineering",
-  "Electronic Systems",
-  "Automatic & Industrial Control",
+  "Systems, Autonomous and AI",
   "Telecommunications",
+  "Electrotechnics",
+  "Automatic Control",
 ] as const;
 
 export const memberSchema = z.object({
