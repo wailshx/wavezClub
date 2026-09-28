@@ -229,18 +229,36 @@ export const submitAdminRequestAction = createServerFn({ method: "POST" })
       .limit(1)
       .single();
 
-    if (newRow) {
-      const reviewUrl = `${origin}/gestion/review/${await signReviewToken(getSigningSecret(), newRow.id)}`;
-      // Sending failure is logged server-side but must not fail the request insert.
-      const { sendResendEmail } = await import("@/lib/resend.server");
-      await sendResendEmail({
-        to: getOwnerEmail(),
-        subject: "New admin request — Wavez Club",
-        text: `There's a new admin request from ${data.firstName} ${data.lastName} — click to review: ${reviewUrl}`,
-      });
+    // No new row means we cannot build a review link; the request is still
+    // inserted, so the owner must be told to look it up by hand.
+    if (!newRow) {
+      console.error(
+        `[admin-request] inserted request for ${data.email} but could not read it back — ` +
+          `no review link was emailed. Find it in admin_requests and review manually.`,
+      );
+      return { ok: true as const, requestId: null, ownerNotified: false };
     }
 
-    return { ok: true as const };
+    const reviewUrl = `${origin}/gestion/review/${await signReviewToken(getSigningSecret(), newRow.id)}`;
+    // The insert must not fail because mail did, but the request is STRANDED if
+    // this owner alert is lost: /gestion/review/$token is the only approval path,
+    // so nothing can be approved until the owner has that link. Surface the
+    // failure loudly and hand the applicant a reference they can quote.
+    const { sendResendEmail } = await import("@/lib/resend.server");
+    const alert = await sendResendEmail({
+      to: getOwnerEmail(),
+      subject: "New admin request — Wavez Club",
+      text: `There's a new admin request from ${data.firstName} ${data.lastName} — click to review: ${reviewUrl}`,
+    });
+    if (!alert.ok) {
+      console.error(
+        `[admin-request] OWNER ALERT FAILED for requestId=${newRow.id} email=${data.email} ` +
+          `error=${alert.error}. This request is stuck in "pending" until you open it ` +
+          `manually: ${reviewUrl}`,
+      );
+    }
+
+    return { ok: true as const, requestId: newRow.id, ownerNotified: alert.ok };
   });
 
 /** Owner-only: ensure the signed-in owner has the president admin role. */
@@ -378,11 +396,10 @@ export const decideAdminRequestAction = createServerFn({ method: "POST" })
       .update({ status: "rejected", decided_at: new Date().toISOString() })
       .eq("id", decoded.requestId);
 
-    // Sending failure is logged server-side but the decision itself is final.
-    // From an official club mailbox (CLUB_EMAIL) — the club talking to a would-be
-    // leader, not an owner-to-owner alert.
+    // Sending failure must not undo the decision, but the applicant now believes
+    // they were told — surface it so the owner can follow up by hand.
     const { sendClubEmail } = await import("@/lib/resend.server");
-    await sendClubEmail({
+    const notice = await sendClubEmail({
       to: request.email,
       subject: "Wavez Club — admin request update",
       text: [
@@ -396,6 +413,18 @@ export const decideAdminRequestAction = createServerFn({ method: "POST" })
         "— Wavez Club",
       ].join("\n"),
     });
+    if (!notice.ok) {
+      console.error(
+        `[admin-request] REJECTION EMAIL FAILED for requestId=${decoded.requestId} ` +
+          `email=${request.email} error=${notice.error}`,
+      );
+    }
 
-    return { ok: true as const, action: "cancel" as const, email: request.email };
+    return {
+      ok: true as const,
+      action: "cancel" as const,
+      email: request.email,
+      emailSent: notice.ok,
+      emailError: notice.ok ? undefined : notice.error,
+    };
   });

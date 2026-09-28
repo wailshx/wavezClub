@@ -48,7 +48,12 @@ function ReviewPage() {
   const [fetchState, setFetchState] = useState<FetchState>({ status: "loading" });
   const [confirming, setConfirming] = useState<"accept" | "cancel" | null>(null);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ action: "accept" | "cancel"; email: string } | null>(null);
+  const [result, setResult] = useState<{
+    action: "accept" | "cancel";
+    email: string;
+    emailSent?: boolean;
+    emailError?: string;
+  } | null>(null);
 
   async function loadRequest(showLoading = true) {
     if (showLoading) setFetchState({ status: "loading" });
@@ -73,7 +78,12 @@ function ReviewPage() {
     setBusy(true);
     try {
       const res = await decideAdminRequestAction({ data: { token, action } });
-      setResult({ action: res.action, email: res.email });
+      setResult({
+        action: res.action,
+        email: res.email,
+        ...("emailSent" in res ? { emailSent: res.emailSent } : {}),
+        ...("emailError" in res && res.emailError ? { emailError: res.emailError } : {}),
+      });
       setConfirming(null);
     } catch {
       setBusy(false);
@@ -205,9 +215,18 @@ function ReviewPage() {
               {(result?.action ?? request.status) === "accept" ||
               (result?.action ?? request.status) === "approved"
                 ? `Approved — invite sent to ${result?.email ?? request.email}`
-                : result !== null
-                  ? "Rejected"
-                  : `Rejected — ${request.email} has been notified`}
+                : result === null
+                  ? `Rejected — this request for ${request.email} was already decided`
+                  : result.emailSent === false
+                    ? `Rejected — the email to ${result.email} could NOT be sent`
+                    : `Rejected — ${result.email} has been notified`}
+              {result?.emailSent === false && (
+                <p className="mt-2 rounded-xl border border-[#f59e0b]/30 bg-[#f59e0b]/15 p-3 text-xs font-bold text-[#fcd34d]">
+                  The decision was saved, but the rejection email was not delivered, so this
+                  applicant has NOT been told. Send it by hand.
+                  {result.emailError ? ` (${result.emailError})` : ""}
+                </p>
+              )}
               <p className="mt-2 text-xs font-semibold opacity-80">
                 This request has already been decided and can no longer be changed.
               </p>

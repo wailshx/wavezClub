@@ -51,6 +51,7 @@ function GestionPage() {
   const [phone, setPhone] = useState("");
 
   const [requestSent, setRequestSent] = useState(false);
+  const [requestId, setRequestId] = useState<string | null>(null);
 
   useEffect(() => {
     async function run() {
@@ -111,6 +112,7 @@ function GestionPage() {
     const res = await submitAdminRequestAction({ data: parsed.data });
     setBusy(false);
     if (res.ok) {
+      setRequestId(res.requestId);
       setRequestSent(true);
     } else {
       toast.error(res.message);
@@ -153,10 +155,15 @@ function GestionPage() {
               </p>
               <p className="mt-2">
                 We received your application for{" "}
-                <span className="font-bold">{DEPARTMENT_LABELS[department]}</span>. The club will
-                review it shortly — an invitation will arrive at{" "}
-                <span className="font-bold">{requestEmail}</span> if your request is approved.
+                <span className="font-bold">{DEPARTMENT_LABELS[department]}</span>. No email is sent
+                right now — officers review applications by hand, and an invitation will reach{" "}
+                <span className="font-bold">{requestEmail}</span> only if your request is approved.
               </p>
+              {requestId && (
+                <p className="mt-2 text-xs text-[#a7f3d0]">
+                  Your reference: <span className="font-mono font-bold">{requestId}</span>
+                </p>
+              )}
               {OWNER_EMAIL && (
                 <p className="mt-3 border-t border-[#34d399]/20 pt-3 text-xs text-[#a7f3d0]">
                   Questions? Contact the club owner at{" "}
