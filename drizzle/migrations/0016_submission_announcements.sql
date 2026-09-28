@@ -1,5 +1,10 @@
 -- 0016: Announcements become submission-only.
 --
+-- ALREADY APPLIED to production (`pnqdtozfqzvybewuabwc`) on 2026-09-28. Every
+-- step below is guarded so a re-run is a no-op rather than destructive — do not
+-- paste it into a database that already has submission announcements, and do not
+-- "fix" the guards back into bare ALTERs.
+--
 -- The "event" and "news" announcement types are retired everywhere (public feed
 -- + admin console). What remains is a single kind — `registration` — used to
 -- announce an open-day or club-event submission that students can apply to.
@@ -14,7 +19,12 @@
 -- foreign key to `registration_campaigns` here.
 
 -- 1 · Retire the old event/news announcements.
-DELETE FROM public.posts;
+--
+--     Scoped to the retired kinds rather than `DELETE FROM public.posts`, so that
+--     re-running this migration is a no-op instead of silently wiping every
+--     submission published since. On a database that predates this migration
+--     every row is event/news, so this still removes them all.
+DELETE FROM public.posts WHERE kind::text <> 'registration';
 
 -- 2 · `registration` becomes the only announcement kind. Postgres cannot remove
 --     a value from an enum in place, so rebuild the type. The covering index goes
@@ -22,21 +32,33 @@ DELETE FROM public.posts;
 DROP INDEX IF EXISTS public.posts_kind_published_idx;
 ALTER TABLE public.posts DROP COLUMN IF EXISTS kind;
 DROP TYPE IF EXISTS public.post_kind;
-CREATE TYPE public.post_kind AS ENUM ('registration');
+
+--     Postgres has no `CREATE TYPE IF NOT EXISTS`, so guard it by hand. Without
+--     this a re-run dies here and the remaining steps are never applied.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'post_kind') THEN
+    CREATE TYPE public.post_kind AS ENUM ('registration');
+  END IF;
+END
+$$;
+
 ALTER TABLE public.posts
-  ADD COLUMN kind public.post_kind NOT NULL DEFAULT 'registration';
+  ADD COLUMN IF NOT EXISTS kind public.post_kind NOT NULL DEFAULT 'registration';
 
 -- 3 · Which submission this announcement opens (drives the card's type pill).
 ALTER TABLE public.posts
-  ADD COLUMN submission_type text NOT NULL DEFAULT 'openday'
+  ADD COLUMN IF NOT EXISTS submission_type text NOT NULL DEFAULT 'openday'
   CHECK (submission_type IN ('openday', 'event'));
 
 -- 4 · Short hook under the title. A `text` column (not null, empty default) so
 --     older tooling and the RLS policies keep working unchanged.
-ALTER TABLE public.posts ADD COLUMN subtitle text NOT NULL DEFAULT '';
+ALTER TABLE public.posts
+  ADD COLUMN IF NOT EXISTS subtitle text NOT NULL DEFAULT '';
 
 -- 5 · Persisted pin: pinned rows sort above everything else in the feed.
-ALTER TABLE public.posts ADD COLUMN is_pinned boolean NOT NULL DEFAULT false;
+ALTER TABLE public.posts
+  ADD COLUMN IF NOT EXISTS is_pinned boolean NOT NULL DEFAULT false;
 
 -- 6 · Feed index matching the public read: published → pinned → newest.
 CREATE INDEX IF NOT EXISTS posts_feed_idx
