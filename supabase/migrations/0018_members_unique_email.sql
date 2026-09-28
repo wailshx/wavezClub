@@ -10,32 +10,31 @@
 -- person. Idempotent: safe on a fresh database and on one already migrated.
 
 DO $$
+DECLARE
+  dupes text;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_indexes
     WHERE schemaname = 'public'
       AND indexname = 'members_email_lower_key'
   ) THEN
-    -- Refuse rather than dedupe. Which of two members is the real one, and
-    -- what happened to the other, is the club's decision, not the migration's.
-    -- This raises with the conflicting rows so the operator can resolve them.
-    IF EXISTS (
-      SELECT 1 FROM public.members
-      GROUP BY lower(email)
+    -- Refuse rather than dedupe. Which of two members is the real one, and what
+    -- happened to the other, is the club's decision, not the migration's. Raise
+    -- with the conflicting rows so the operator can resolve them by hand.
+    SELECT string_agg(d.email || ' (x' || d.n || ')', ', ') INTO dupes
+    FROM (
+      SELECT lower(m.email) AS email, count(*) AS n
+      FROM public.members m
+      GROUP BY lower(m.email)
       HAVING count(*) > 1
-    ) THEN
+      ORDER BY lower(m.email)
+    ) d;
+
+    IF dupes IS NOT NULL THEN
       RAISE EXCEPTION USING
-        MESSAGE = 'Cannot add unique index on members.email: duplicate addresses already exist.',
-        DETAIL = (SELECT string_agg(
-          lower(email) || ' x' || count(*) || ' (' || string_agg(full_name, ', ') || ')',
-          E'\n'
-        ) FROM (
-          SELECT lower(email), count(*), string_agg(full_name, ', ') AS full_name
-          FROM public.members
-          GROUP BY lower(email)
-          HAVING count(*) > 1
-        ) duplicates);
-      HINT = 'Merge or delete the duplicate members, then run this migration again.';
+        MESSAGE = 'Cannot add a unique index on members.email: duplicate addresses already exist.',
+        DETAIL = dupes,
+        HINT = 'Merge or delete the duplicate members, then run this migration again.';
     END IF;
 
     CREATE UNIQUE INDEX members_email_lower_key ON public.members (lower(email));
