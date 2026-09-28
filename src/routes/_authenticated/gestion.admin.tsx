@@ -2924,60 +2924,69 @@ function AdminPage() {
                       <p className="mt-2 line-clamp-3 text-sm font-semibold text-[#94a3c8]">
                         {post.body}
                       </p>
-                      <div className="mt-4 flex gap-2">
-                        <button
-                          onClick={() => startEditingPost(post)}
-                          className="clay-sm inline-flex items-center gap-1 rounded-lg bg-[#34d399]/20 px-3 py-1.5 text-xs font-bold text-[#6ee7b7]"
-                        >
-                          <Pencil className="size-3.5" /> Edit
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (confirm(`Delete "${post.title}"?`)) removePost.mutate(post.id);
-                          }}
-                          className="clay-sm inline-flex items-center gap-1 rounded-lg bg-[#f43f5e]/20 px-3 py-1.5 text-xs font-bold text-[#fda4af]"
-                        >
-                          <Trash2 className="size-3.5" /> Delete
-                        </button>
-                      </div>
-
                       {(() => {
                         const campaign = post.campaign_id
                           ? campaignById.get(post.campaign_id)
                           : undefined;
-                        if (!campaign) {
-                          return (
-                            <p className="mt-3 border-t border-white/10 pt-3 text-xs font-semibold text-[#fcd34d]">
-                              No application form yet — save this announcement to create one, or
-                              attach an existing registration above.
-                            </p>
-                          );
-                        }
-                        const open = inboxPostId === post.id;
+                        const open = Boolean(campaign) && inboxPostId === post.id;
                         return (
-                          <div className="mt-3 border-t border-white/10 pt-3">
-                            <button
-                              onClick={() => setInboxPostId(open ? null : post.id)}
-                              aria-expanded={open}
-                              className="flex w-full items-center justify-between gap-3 text-left"
-                            >
-                              <span className="text-xs font-extrabold text-[#6fa0ff] uppercase">
-                                Submissions · {campaign.submission_count}
-                              </span>
-                              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#94a3c8]">
-                                {open ? "Hide" : campaign.is_open ? "Review" : "Review (closed)"}
-                                <ChevronDown
-                                  className={`size-4 transition-transform ${open ? "rotate-180" : ""}`}
-                                />
-                              </span>
-                            </button>
-                            {campaign.is_open && (
-                              <p className="mt-1 text-[11px] font-semibold text-[#6ee7b7]">
-                                Accepting applications
+                          <>
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              <button
+                                onClick={() => startEditingPost(post)}
+                                className="clay-sm inline-flex items-center gap-1 rounded-lg bg-[#34d399]/20 px-3 py-1.5 text-xs font-bold text-[#6ee7b7]"
+                              >
+                                <Pencil className="size-3.5" /> Edit
+                              </button>
+                              {campaign && (
+                                <button
+                                  onClick={() => setInboxPostId(open ? null : post.id)}
+                                  aria-expanded={open}
+                                  title={
+                                    campaign.is_open
+                                      ? "Review the students who submitted"
+                                      : "This registration is closed — you can still review it"
+                                  }
+                                  className={`clay-sm inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                                    open
+                                      ? "bg-[#2e6bff]/30 text-[#a5c3ff]"
+                                      : "bg-[#2e6bff]/15 text-[#6fa0ff] hover:bg-[#2e6bff]/25"
+                                  }`}
+                                >
+                                  <Users className="size-3.5" />
+                                  Submissions · {campaign.submission_count}
+                                  <ChevronDown
+                                    className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+                                  />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  if (confirm(`Delete "${post.title}"?`))
+                                    removePost.mutate(post.id);
+                                }}
+                                className="clay-sm inline-flex items-center gap-1 rounded-lg bg-[#f43f5e]/20 px-3 py-1.5 text-xs font-bold text-[#fda4af]"
+                              >
+                                <Trash2 className="size-3.5" /> Delete
+                              </button>
+                            </div>
+
+                            {campaign ? (
+                              <>
+                                {campaign.is_open && (
+                                  <p className="mt-3 text-[11px] font-semibold text-[#6ee7b7]">
+                                    Accepting applications
+                                  </p>
+                                )}
+                                {open && <CampaignSubmissions campaign={campaign} />}
+                              </>
+                            ) : (
+                              <p className="mt-3 border-t border-white/10 pt-3 text-xs font-semibold text-[#fcd34d]">
+                                No application form yet — save this announcement to create one, or
+                                attach an existing registration above.
                               </p>
                             )}
-                            {open && <CampaignSubmissions campaign={campaign} />}
-                          </div>
+                          </>
                         );
                       })()}
                     </div>
