@@ -53,12 +53,12 @@ export function SiteFooter() {
               Ready to join the wave?
             </h2>
             <p className="mt-1.5 text-sm font-semibold text-foreground/70">
-              Open registrations are live — pick a campaign and apply in minutes.
+              Open submissions are live — pick an announcement and apply in minutes.
             </p>
           </div>
           <Link
             to="/"
-            hash="join"
+            hash="submissions"
             className="cta-pulse clay-md group inline-flex w-fit items-center gap-2 rounded-2xl bg-brand px-6 py-3 text-sm font-bold text-primary-foreground transition-transform duration-200 hover:pointer-fine:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
           >
             Apply now
@@ -124,7 +124,7 @@ export function SiteFooter() {
               </h3>
               <ul className="mt-2 flex flex-col">
                 <li>
-                  <Link to="/" hash="join" className={LINK_CLASS}>
+                  <Link to="/" hash="submissions" className={LINK_CLASS}>
                     Register for a campaign
                   </Link>
                 </li>

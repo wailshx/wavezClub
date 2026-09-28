@@ -7,8 +7,10 @@ import logo from "@/assets/wavez-logo.png";
 const NAV_ITEMS: ReadonlyArray<{ to: "/" | "/about"; hash?: string; label: string }> = [
   { to: "/about", label: "About" },
   { to: "/", hash: "leaders", label: "Team" },
+  // Registration is reached from the announcement cards themselves, so this
+  // points at the feed. The old "Join" entry targeted a shared campaign list
+  // that no longer exists.
   { to: "/", hash: "submissions", label: "Submissions" },
-  { to: "/", hash: "join", label: "Join" },
 ];
 
 export function SiteHeader() {

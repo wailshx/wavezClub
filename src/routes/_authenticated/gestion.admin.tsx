@@ -110,8 +110,10 @@ import {
   type MemberDocumentKey,
 } from "@/lib/admin-api";
 import { MAX_LEADER_DESCRIPTION } from "@/lib/leaders";
+import { listRegistrationCampaigns } from "@/lib/admin-registrations-api";
 import {
   ANNOUNCEMENT_KIND,
+  CAMPAIGN_KIND_FOR_SUBMISSION,
   SUBMISSION_TYPES,
   SUBMISSION_TYPE_HINT,
   SUBMISSION_TYPE_KIND_LABEL,
@@ -617,6 +619,8 @@ type Post = {
   location: string | null;
   event_date: string | null;
   submission_type: SubmissionType;
+  /** Campaign the public card submits to; null until one is linked. */
+  campaign_id: string | null;
   is_pinned: boolean;
   published: boolean;
   created_at: string;
@@ -631,6 +635,7 @@ const blankPost: Post = {
   location: "",
   event_date: null,
   submission_type: "openday",
+  campaign_id: null,
   is_pinned: false,
   published: true,
   created_at: "",
@@ -732,6 +737,21 @@ function AdminPage() {
     enabled: isAdmin === true && canAccess("members"),
     queryFn: () => listMembers(),
   });
+
+  // Campaigns power the announcement's Submit button. Shares the
+  // ["admin-campaigns"] cache key with the Registrations tab, so opening the
+  // announcement form after editing a campaign shows the new state for free.
+  const { data: campaigns = [] } = useQuery({
+    queryKey: ["admin-campaigns"],
+    enabled: isAdmin === true && canAccess("events"),
+    queryFn: () => listRegistrationCampaigns(),
+  });
+
+  /** Campaigns whose kind matches what the draft is announcing. */
+  const matchingCampaigns = campaigns.filter(
+    (campaign) =>
+      campaign.kind === CAMPAIGN_KIND_FOR_SUBMISSION[postDraft?.submission_type ?? "openday"],
+  );
 
   function patchMembersCache(update: (prev: Member[]) => Member[]) {
     queryClient.setQueryData<Member[]>(["members"], (prev) => (prev ? update(prev) : prev));
@@ -2521,7 +2541,21 @@ function AdminPage() {
                               key={type}
                               type="button"
                               aria-pressed={postDraft.submission_type === type}
-                              onClick={() => setPostDraft({ ...postDraft, submission_type: type })}
+                              onClick={() =>
+                                setPostDraft({
+                                  ...postDraft,
+                                  submission_type: type,
+                                  // Switching type can invalidate the linked campaign: a
+                                  // membership drive on an "event" announcement would send
+                                  // the student to the wrong form, so drop the link.
+                                  campaign_id:
+                                    postDraft.campaign_id &&
+                                    campaigns.find((c) => c.id === postDraft.campaign_id)?.kind ===
+                                      CAMPAIGN_KIND_FOR_SUBMISSION[type]
+                                      ? postDraft.campaign_id
+                                      : null,
+                                })
+                              }
                               className={`rounded-2xl border px-4 py-3 text-left transition-colors ${
                                 postDraft.submission_type === type
                                   ? type === "openday"
@@ -2550,6 +2584,47 @@ function AdminPage() {
                         <p className="mt-1.5 text-[11px] font-semibold text-[#94a3c8]">
                           The card leads with this label, so students know what they are applying to
                           before they read the title.
+                        </p>
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label
+                          className="text-xs font-extrabold text-muted-foreground uppercase"
+                          htmlFor="post-campaign"
+                        >
+                          Registration this announces
+                        </label>
+                        <select
+                          id="post-campaign"
+                          className={fieldClass}
+                          value={postDraft.campaign_id ?? ""}
+                          onChange={(e) =>
+                            setPostDraft({ ...postDraft, campaign_id: e.target.value || null })
+                          }
+                        >
+                          <option value="">
+                            {matchingCampaigns.length === 0
+                              ? `No ${
+                                  postDraft.submission_type === "openday" ? "membership" : "event"
+                                } campaign yet — create one in Registrations`
+                              : "Not linked yet — the card will show “Registration opening soon”"}
+                          </option>
+                          {matchingCampaigns.map((campaign) => (
+                            <option key={campaign.id} value={campaign.id}>
+                              {campaign.title}
+                              {campaign.is_open ? "" : " (closed)"}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="mt-1.5 text-[11px] font-semibold text-[#94a3c8]">
+                          The card's submit button opens this campaign's registration page — only{" "}
+                          {postDraft.submission_type === "openday" ? "membership" : "event"}{" "}
+                          campaigns are listed so the announcement and the form a student fills in
+                          can never disagree.{" "}
+                          {postDraft.campaign_id &&
+                          !campaigns.find((c) => c.id === postDraft.campaign_id)?.is_open
+                            ? "This campaign is closed, so the published card will show “Registration opening soon” until you open it."
+                            : ""}
                         </p>
                       </div>
 

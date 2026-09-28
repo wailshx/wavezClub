@@ -10,7 +10,6 @@ import {
 } from "@/lib/announcements";
 import { BoltDivider } from "@/components/circuit-board";
 import { ScrollReveal } from "@/components/scroll-reveal";
-import { PulseDot } from "@/components/pulse-dot";
 import { SubmissionAnnouncementCard } from "@/components/submission-announcement-card";
 import { LeadersCarousel } from "@/components/leaders-carousel";
 import { MentorsSection } from "@/components/mentors-section";
@@ -54,6 +53,7 @@ function toAnnouncement(row: {
   submission_type: string;
   is_pinned: boolean;
   created_at: string;
+  campaign_id: string | null;
 }): SubmissionAnnouncement {
   return {
     ...row,
@@ -68,7 +68,7 @@ function Index() {
       const { data, error } = await supabase
         .from("posts")
         .select(
-          "id, title, subtitle, body, location, event_date, submission_type, is_pinned, created_at",
+          "id, title, subtitle, body, location, event_date, submission_type, is_pinned, created_at, campaign_id",
         )
         .eq("published", true)
         .order("is_pinned", { ascending: false })
@@ -91,7 +91,11 @@ function Index() {
     queryFn: () => fetchPublicTeamMembers(supabase),
   });
 
-  const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
+  // The open-campaign list is no longer rendered as its own section. It is still
+  // needed here, as the single source of truth for "is this announcement's
+  // submission actually accepting entries?" — `list_open_campaigns` already
+  // filters on `is_open`, so membership of this set IS the open check.
+  const { data: openCampaigns = [] } = useQuery({
     queryKey: ["open-campaigns"],
     queryFn: async () => {
       const rpc = supabase as unknown as {
@@ -106,8 +110,7 @@ function Index() {
     },
   });
 
-  const hasOpenCampaigns = campaigns.length > 0;
-  const [featuredCampaign, ...restCampaigns] = campaigns;
+  const openCampaignIds = new Set(openCampaigns.map((campaign) => campaign.id));
 
   // Feed order: pinned announcements first, then newest.
   const announcements = sortAnnouncements(posts);
@@ -138,11 +141,14 @@ function Index() {
               intelligence, robotics, embedded systems and IoT.
             </p>
             <div className="mt-9 flex flex-wrap gap-4">
+              {/* Registration is per-announcement now (each card submits to its own
+                  campaign), so the hero points at the feed instead of a shared
+                  campaign list that no longer exists. */}
               <a
-                href="#join"
+                href="#submissions"
                 className="clay-md rounded-2xl bg-brand px-7 py-3.5 font-bold text-primary-foreground focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
               >
-                Join a campaign
+                See open submissions
               </a>
               <Link
                 to="/about"
@@ -290,7 +296,7 @@ function Index() {
             <ScrollReveal delay={0.1}>
               <p className="mt-3 max-w-2xl font-semibold text-muted-foreground">
                 Every announcement here is a live submission — an open day or a club event you can
-                apply to right now.
+                apply to right now, from the card itself.
               </p>
             </ScrollReveal>
           </div>
@@ -302,16 +308,8 @@ function Index() {
           <div className="mt-10 max-w-2xl border-t border-foreground/10 pt-8">
             <p className="font-display text-xl font-bold">No submission is open right now</p>
             <p className="mt-2 font-semibold text-muted-foreground">
-              We open a new submission before every open day and club event — check back soon, or
-              see every registration we are running.
+              We open a new submission before every open day and club event — check back soon.
             </p>
-            <a
-              href="#join"
-              className="mt-6 inline-flex items-center gap-2 rounded-2xl border-2 border-brand/25 bg-card/60 px-6 py-3 font-bold text-brand-deep transition-colors hover:border-brand/60 hover:bg-brand/5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-            >
-              Browse registrations
-              <ArrowRight aria-hidden="true" className="size-4" />
-            </a>
           </div>
         ) : (
           <div className="mt-10 flex flex-col gap-8 md:gap-10">
@@ -320,132 +318,14 @@ function Index() {
                 key={announcement.id}
                 announcement={announcement}
                 index={index}
+                campaignId={
+                  announcement.campaign_id && openCampaignIds.has(announcement.campaign_id)
+                    ? announcement.campaign_id
+                    : null
+                }
               />
             ))}
           </div>
-        )}
-      </section>
-
-      <section id="join" className="mx-auto max-w-6xl px-5 pt-10 pb-20">
-        <ScrollReveal>
-          <div className="max-w-3xl">
-            <p className="text-xs font-extrabold tracking-widest text-brand uppercase">
-              All registrations
-            </p>
-            <h2 className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-3 font-display text-4xl leading-tight font-bold md:text-5xl">
-              <span>{hasOpenCampaigns ? "Join a campaign" : "Registrations closed right now"}</span>
-              {hasOpenCampaigns && (
-                <span className="inline-flex items-center gap-2 rounded-full bg-brand/15 px-4 py-1.5 text-xs font-extrabold tracking-widest text-brand uppercase md:text-sm">
-                  <PulseDot />
-                  Open now
-                </span>
-              )}
-            </h2>
-            <p className="mt-3 max-w-2xl font-semibold text-foreground/75">
-              Every open campaign in one place — pick the one you want and apply.
-            </p>
-          </div>
-        </ScrollReveal>
-
-        {campaignsLoading ? (
-          <p className="mt-10 font-semibold text-muted-foreground">Loading open campaigns…</p>
-        ) : !hasOpenCampaigns ? (
-          <div className="mt-10 max-w-2xl">
-            <span className="inline-flex items-center rounded-full bg-muted px-4 py-1.5 text-xs font-extrabold tracking-widest text-muted-foreground uppercase">
-              Closed
-            </span>
-            <p className="mt-5 font-display text-2xl font-bold text-foreground/60">
-              No open registration right now
-            </p>
-            <p className="mt-2 font-semibold text-muted-foreground">
-              Check back soon — we open new drives before every event and season.
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* Featured campaign — the single most urgent thing to apply for. */}
-            {featuredCampaign && (
-              <ScrollReveal>
-                <Link
-                  to="/register/$campaignId"
-                  params={{ campaignId: featuredCampaign.id }}
-                  className="group hover-glow mt-10 block transition-transform duration-200 hover:pointer-fine:-translate-y-1 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-                >
-                  <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <span className="inline-flex items-center gap-2 rounded-full bg-brand/15 px-4 py-1.5 text-xs font-extrabold tracking-widest text-brand uppercase">
-                      <PulseDot />
-                      Open now
-                    </span>
-                    <span className="text-xs font-extrabold tracking-widest text-muted-foreground uppercase">
-                      Featured registration
-                    </span>
-                  </span>
-                  <h3 className="mt-4 max-w-3xl font-display text-3xl leading-tight font-bold text-brand-deep transition-colors duration-200 group-hover:text-brand md:text-5xl">
-                    {featuredCampaign.title}
-                  </h3>
-                  <p className="mt-4 max-w-2xl text-base leading-relaxed font-semibold text-muted-foreground md:text-lg">
-                    {featuredCampaign.description}
-                  </p>
-                  <p className="mt-6 border-b border-brand/25 pb-3 text-sm font-extrabold tracking-wide text-muted-foreground uppercase">
-                    {featuredCampaign.kind === "event" ? "Event participation" : "Membership drive"}
-                    {featuredCampaign.custom_questions.length > 0 &&
-                      ` · ${featuredCampaign.custom_questions.length} question${
-                        featuredCampaign.custom_questions.length === 1 ? "" : "s"
-                      }`}
-                  </p>
-                  <span className="cta-pulse clay-md mt-7 inline-flex w-fit items-center gap-2 rounded-2xl bg-brand px-9 py-4 text-lg font-bold text-primary-foreground transition-transform duration-200 group-hover:translate-x-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
-                    Apply now
-                    <ArrowRight
-                      aria-hidden="true"
-                      className="size-5 transition-transform duration-200 group-hover:translate-x-1"
-                    />
-                  </span>
-                </Link>
-              </ScrollReveal>
-            )}
-
-            {/* Remaining open campaigns — keep the standard card treatment. */}
-            {restCampaigns.length > 0 && (
-              <div className="mt-14 grid gap-x-16 gap-y-14 md:grid-cols-2">
-                {restCampaigns.map((campaign, index) => (
-                  <ScrollReveal key={campaign.id} delay={Math.min(index * 0.08, 0.16)} scale>
-                    <Link
-                      to="/register/$campaignId"
-                      params={{ campaignId: campaign.id }}
-                      className="group hover-glow flex flex-col transition-transform duration-200 hover:pointer-fine:-translate-y-1 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-                    >
-                      <p className="inline-flex items-center gap-2 text-xs font-extrabold tracking-widest text-brand uppercase">
-                        <PulseDot />
-                        <span>Open · #{index + 2}</span>
-                      </p>
-                      <h3 className="mt-3 font-display text-2xl leading-tight font-bold text-brand-deep transition-colors duration-200 group-hover:text-brand md:text-3xl">
-                        {campaign.title}
-                      </h3>
-                      {campaign.description && (
-                        <p className="mt-3 text-[15px] leading-relaxed font-semibold text-muted-foreground">
-                          {campaign.description}
-                        </p>
-                      )}
-                      <p className="mt-6 border-b border-brand/25 pb-3 text-sm font-extrabold tracking-wide text-muted-foreground uppercase">
-                        {campaign.kind === "event" ? "Event participation" : "Membership drive"}
-                        {campaign.custom_questions.length > 0 &&
-                          ` · ${campaign.custom_questions.length} question${
-                            campaign.custom_questions.length === 1 ? "" : "s"
-                          }`}
-                      </p>
-                      <span className="clay-md mt-6 inline-flex w-fit items-center gap-2 rounded-2xl bg-brand px-7 py-3.5 font-bold text-primary-foreground transition-transform duration-200 group-hover:translate-x-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
-                        Apply now
-                        <ArrowRight
-                          aria-hidden="true"
-                          className="size-4 transition-transform duration-200 group-hover:translate-x-1"
-                        />
-                      </span>
-                    </Link>
-                  </ScrollReveal>
-                ))}
-              </div>
-            )}
-          </>
         )}
       </section>
 

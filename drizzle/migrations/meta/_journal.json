@@ -120,6 +120,13 @@
       "when": 1790500000000,
       "tag": "0016_submission_announcements",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790600000000,
+      "tag": "0017_post_campaign_link",
+      "breakpoints": true
     }
   ]
 }

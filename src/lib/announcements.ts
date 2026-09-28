@@ -5,6 +5,15 @@
 // The `event` / `news` announcement types are retired (migration 0016). The only
 // kind left is `registration`: an announcement whose whole job is to tell a
 // student that a submission is open. `submission_type` says *which* submission.
+//
+// An announcement is also the only entry point to registration (migration 0017):
+// its "Submit" button goes to `/register/$campaignId` for the ONE campaign it
+// announces, so the campaign drives which form the student fills in. The old
+// shared `#join` campaign list is gone — two announcements that point at one
+// undifferentiated form would have hidden the difference between an open-day
+// membership drive (documents required) and an event sign-up (none).
+
+import type { CampaignKind } from "@/lib/registrations";
 
 /** The only announcement kind that exists in the database. */
 export const ANNOUNCEMENT_KIND = "registration" as const;
@@ -17,6 +26,19 @@ export type SubmissionType = (typeof SUBMISSION_TYPES)[number];
 export function isSubmissionType(value: unknown): value is SubmissionType {
   return typeof value === "string" && (SUBMISSION_TYPES as readonly string[]).includes(value);
 }
+
+/**
+ * The campaign kind an announcement type is allowed to point at.
+ *
+ * This is the invariant that keeps the two flows honest: an "open day"
+ * announcement can only drive a membership campaign (3-step wizard, document
+ * uploads) and an "event" announcement only an event campaign (single-step
+ * form). Enforced in the admin form and re-checked in `savePost`.
+ */
+export const CAMPAIGN_KIND_FOR_SUBMISSION: Record<SubmissionType, CampaignKind> = {
+  openday: "membership",
+  event: "event",
+};
 
 /** Short name — admin pills, dropdowns, analytics legends. */
 export const SUBMISSION_TYPE_LABEL: Record<SubmissionType, string> = {
@@ -36,6 +58,34 @@ export const SUBMISSION_TYPE_HINT: Record<SubmissionType, string> = {
   event: "Students sign up to take part in one specific club event or workshop.",
 };
 
+/**
+ * The card's call to action. Both send the student to the same route — the
+ * campaign they land on decides which form they get — but the wording has to
+ * match what they are actually applying for.
+ */
+export const SUBMISSION_CTA_LABEL: Record<SubmissionType, string> = {
+  openday: "Submit your application",
+  event: "Register for this event",
+};
+
+/**
+ * The trust line beside the CTA. Sets the right expectation per flow: the
+ * membership wizard asks for two uploaded documents, the event form does not.
+ */
+export const SUBMISSION_CTA_NOTE: Record<SubmissionType, string> = {
+  openday: "About 5 minutes — you'll attach your school certificate and ID card.",
+  event: "About 2 minutes — just your details, no documents needed.",
+};
+
+/**
+ * Shown in place of the button when the announcement has no campaign linked, or
+ * its campaign is closed. A dead link to `/register/$campaignId` would land the
+ * student on "This registration has closed", so the card says so up front.
+ */
+export const SUBMISSION_CTA_CLOSED_LABEL = "Registration opening soon";
+export const SUBMISSION_CTA_CLOSED_NOTE =
+  "This submission isn't accepting entries yet — check back shortly.";
+
 /** A row in the announcements feed (public columns). */
 export type SubmissionAnnouncement = {
   id: string;
@@ -47,6 +97,8 @@ export type SubmissionAnnouncement = {
   submission_type: SubmissionType;
   is_pinned: boolean;
   created_at: string;
+  /** Campaign this announcement drives, or null when none is linked yet. */
+  campaign_id: string | null;
 };
 
 /**

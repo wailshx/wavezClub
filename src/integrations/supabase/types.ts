@@ -56,6 +56,7 @@ export type Database = {
       posts: {
         Row: {
           body: string
+          campaign_id: string | null
           created_at: string
           event_date: string | null
           id: string
@@ -69,6 +70,7 @@ export type Database = {
         }
         Insert: {
           body?: string
+          campaign_id?: string | null
           created_at?: string
           event_date?: string | null
           id?: string
@@ -82,6 +84,7 @@ export type Database = {
         }
         Update: {
           body?: string
+          campaign_id?: string | null
           created_at?: string
           event_date?: string | null
           id?: string

@@ -3,7 +3,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
-import { ANNOUNCEMENT_KIND, isSubmissionType, type SubmissionType } from "@/lib/announcements";
+import {
+  ANNOUNCEMENT_KIND,
+  CAMPAIGN_KIND_FOR_SUBMISSION,
+  isSubmissionType,
+  type SubmissionType,
+} from "@/lib/announcements";
 import { MAX_LEADER_DESCRIPTION } from "@/lib/leaders";
 import { isValidLinkedinUrl, TEAM_CATEGORIES, type TeamCategory } from "@/lib/team";
 import { requireSection } from "@/lib/admin-admins-api";
@@ -45,6 +50,8 @@ export type AdminPost = {
   location: string | null;
   event_date: string | null;
   submission_type: SubmissionType;
+  /** Campaign the public card submits to; null until one is linked. */
+  campaign_id: string | null;
   is_pinned: boolean;
   published: boolean;
   created_at: string;
@@ -119,6 +126,38 @@ const leadersTable = (supabase: SupabaseClient<Database>) =>
 
 const teamTable = (supabase: SupabaseClient<Database>) =>
   (supabase as unknown as LooseDb).from("team_members");
+
+/**
+ * Read a campaign's kind. `registration_campaigns` is not part of the
+ * hand-trimmed `Database` type, and `LooseTable` cannot chain filters, so this
+ * one lookup carries its own minimal shape instead of widening the shared type.
+ */
+async function readCampaignKind(
+  supabase: SupabaseClient<Database>,
+  campaignId: string,
+): Promise<{ id: string; kind: string } | null> {
+  const table = (
+    supabase as unknown as {
+      from: (name: string) => {
+        select: (columns: string) => {
+          eq: (
+            column: string,
+            value: string,
+          ) => {
+            maybeSingle: () => Promise<{
+              data: { id: string; kind: string } | null;
+              error: { message: string } | null;
+            }>;
+          };
+        };
+      };
+    }
+  ).from("registration_campaigns");
+
+  const { data, error } = await table.select("id, kind").eq("id", campaignId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ?? null;
+}
 
 async function requireAdmin(context: AdminContext) {
   const { data } = await context.supabase.rpc("has_role", {
@@ -290,6 +329,22 @@ export const savePost = createServerFn({ method: "POST" })
       throw new Error("Invalid date & time");
     }
 
+    // The announcement decides which registration form a student gets, so the
+    // linked campaign's kind must agree with the announcement's type. Re-checked
+    // here (not just in the form) because the picker is filtered client-side and
+    // a stale tab can still submit a mismatched pair.
+    const campaignId = post.campaign_id || null;
+    if (campaignId) {
+      const campaign = await readCampaignKind(supabase, campaignId);
+      if (!campaign) throw new Error("That registration no longer exists");
+      if (campaign.kind !== CAMPAIGN_KIND_FOR_SUBMISSION[post.submission_type]) {
+        throw new Error(
+          `An ${post.submission_type === "openday" ? "open day" : "event"} announcement must ` +
+            `point at a ${CAMPAIGN_KIND_FOR_SUBMISSION[post.submission_type]} campaign`,
+        );
+      }
+    }
+
     const payload = {
       kind: ANNOUNCEMENT_KIND,
       title: title.slice(0, MAX_TITLE),
@@ -298,6 +353,7 @@ export const savePost = createServerFn({ method: "POST" })
       location: post.location?.trim() ? post.location.trim().slice(0, MAX_LOCATION) : null,
       event_date: parsedDate ? parsedDate.toISOString() : null,
       submission_type: post.submission_type,
+      campaign_id: campaignId,
       is_pinned: post.is_pinned === true,
       published: post.published === true,
     };

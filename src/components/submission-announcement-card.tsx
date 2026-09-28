@@ -1,9 +1,14 @@
+import { Link } from "@tanstack/react-router";
 import { ArrowRight, CalendarClock, CalendarDays, Compass, MapPin, Pin } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { ScrollReveal } from "@/components/scroll-reveal";
 import { PulseDot } from "@/components/pulse-dot";
 import {
+  SUBMISSION_CTA_CLOSED_LABEL,
+  SUBMISSION_CTA_CLOSED_NOTE,
+  SUBMISSION_CTA_LABEL,
+  SUBMISSION_CTA_NOTE,
   SUBMISSION_TYPE_KIND_LABEL,
   countdownLabel,
   formatEventDate,
@@ -62,21 +67,31 @@ function UrgencyChip({ eventDate }: { eventDate: string }) {
  *    this?" before the title is read;
  *  · title → subtitle → body descend in size and weight, so the eye lands on the
  *    title first, the promise second, the detail last;
- *  · one CTA pointing at the open-campaign list, plus a short trust line.
+ *  · one CTA that submits *from this card*, plus a trust line.
+ *
+ * The CTA points at `/register/$campaignId` for the campaign this announcement
+ * announces, so the campaign decides whether the student gets the membership
+ * wizard or the event form. When that campaign is missing or closed the button
+ * is replaced by a plain note — a link into a closed registration is worse than
+ * no link, because the student only finds out after the click.
  *
  * `preview` drops the CTA (a draft must not look clickable) and inherits the
  * caller's colour tokens, so the admin console can render it live.
  */
 function AnnouncementCard({
   announcement,
+  campaignId,
   preview,
 }: {
   announcement: SubmissionAnnouncement;
+  /** Open campaign this card submits to, or null when it isn't accepting. */
+  campaignId: string | null;
   preview: boolean;
 }) {
   const style = SUBMISSION_STYLE[announcement.submission_type] ?? SUBMISSION_STYLE.openday;
   const TypeIcon = style.Icon;
   const { title, subtitle, body, location, event_date, is_pinned } = announcement;
+  const type = announcement.submission_type;
 
   return (
     // Wrapper carries the hover treatment so the card can stay `overflow-hidden`
@@ -154,22 +169,37 @@ function AnnouncementCard({
             </p>
           )}
 
-          {/* ── One CTA + trust line (skipped in the admin preview) ────────── */}
+          {/* ── Submit from this card (skipped in the admin preview) ─────── */}
           {!preview && (
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
-              <a
-                href="#join"
-                className="cta-pulse clay-md inline-flex items-center gap-2.5 rounded-2xl bg-brand px-8 py-4 text-base font-bold text-primary-foreground transition-transform duration-200 hover:pointer-fine:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 md:text-lg"
-              >
-                Submit your application
-                <ArrowRight
-                  aria-hidden="true"
-                  className="size-5 transition-transform duration-200 group-hover:translate-x-1"
-                />
-              </a>
-              <p className="text-sm font-bold text-muted-foreground">
-                About 2 minutes — our team reviews every submission.
-              </p>
+              {campaignId ? (
+                <>
+                  <Link
+                    to="/register/$campaignId"
+                    params={{ campaignId }}
+                    className="cta-pulse clay-md inline-flex items-center gap-2.5 rounded-2xl bg-brand px-8 py-4 text-base font-bold text-primary-foreground transition-transform duration-200 hover:pointer-fine:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 md:text-lg"
+                  >
+                    {SUBMISSION_CTA_LABEL[type]}
+                    <ArrowRight
+                      aria-hidden="true"
+                      className="size-5 transition-transform duration-200 group-hover:translate-x-1"
+                    />
+                  </Link>
+                  <p className="text-sm font-bold text-muted-foreground">
+                    {SUBMISSION_CTA_NOTE[type]}
+                  </p>
+                </>
+              ) : (
+                <>
+                  {/* Deliberately not a link — see the component docblock. */}
+                  <span className="inline-flex items-center gap-2.5 rounded-2xl border-2 border-dashed border-foreground/20 px-8 py-4 text-base font-bold text-muted-foreground md:text-lg">
+                    {SUBMISSION_CTA_CLOSED_LABEL}
+                  </span>
+                  <p className="text-sm font-bold text-muted-foreground">
+                    {SUBMISSION_CTA_CLOSED_NOTE}
+                  </p>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -181,21 +211,32 @@ function AnnouncementCard({
 export function SubmissionAnnouncementCard({
   announcement,
   index,
+  campaignId,
   preview = false,
 }: {
   announcement: SubmissionAnnouncement;
   /** Position in the feed — only used to stagger the entrance. */
   index: number;
+  /**
+   * The announcement's campaign, resolved against the *open* campaign list by
+   * the caller: pass null when the link is missing or the campaign has closed,
+   * and the card renders a non-clickable state instead of a dead link.
+   */
+  campaignId?: string | null;
   /** Render inside the admin console: no entrance animation, no CTA. */
   preview?: boolean;
 }) {
   // The preview is usually below the fold of a long form, so it must never be
   // gated behind a scroll-triggered reveal.
-  if (preview) return <AnnouncementCard announcement={announcement} preview />;
+  if (preview) return <AnnouncementCard announcement={announcement} campaignId={null} preview />;
 
   return (
     <ScrollReveal delay={Math.min(0.08 * index, 0.24)} scale>
-      <AnnouncementCard announcement={announcement} preview={false} />
+      <AnnouncementCard
+        announcement={announcement}
+        campaignId={campaignId ?? null}
+        preview={false}
+      />
     </ScrollReveal>
   );
 }

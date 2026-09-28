@@ -22,26 +22,48 @@ Until the Supabase CLI is linked to this project (`supabase link --project-ref p
 | `0004_admin_email_drafts.sql` | `admin_email_drafts` table + RLS |
 | `0015_dashboard_stats.sql` | `get_dashboard_stats` SECURITY DEFINER RPC (SQL-side dashboard aggregation) + aggregate-support indexes |
 | `0016_submission_announcements.sql` | Retires the `event`/`news` announcement kinds — `post_kind` is rebuilt as `('registration')`; adds `posts.submission_type`, `posts.subtitle`, `posts.is_pinned`; refreshes the `get_dashboard_stats` announcement series |
+| `0017_post_campaign_link.sql` | Adds `posts.campaign_id` → `registration_campaigns(id) ON DELETE SET NULL` + index. The announcement *is* the registration entry point, so each one points at the single campaign it announces |
 
 ### Announcements = submissions only
 
 `posts` is no longer a news feed. The `event` and `news` kinds are gone from the
 database, the public site and the admin console. Every announcement now exists to
-announce a submission (`submission_type`: `'openday' | 'event'`), and its CTA
-sends the student to `#join` — the open-campaign list owned by
-`registration_campaigns` / `registrations`.
+announce a submission (`submission_type`: `'openday' | 'event'`), and its button
+submits **from the card** to the registration page of the campaign it announces.
+
+There is no shared campaign list on the homepage any more — the `#join` section
+and every `hash="join"` link are gone. `submission_type` is bound to the
+campaign kind through `CAMPAIGN_KIND_FOR_SUBMISSION`:
+
+| Announcement | Campaign `kind` | Form the student gets |
+|---|---|---|
+| `openday` | `membership` | `MembershipWizard` — 3 steps: profile, school certificate + ID card upload, custom questions |
+| `event` | `event` | `EventForm` — single step, details only, no documents |
+
+The link is **nullable on purpose**: an announcement can be written before its
+campaign exists. The public card resolves `campaign_id` against
+`list_open_campaigns`, and renders a non-clickable "Registration opening soon"
+state when the link is missing *or* the campaign is closed — never a dead link
+into "This registration has closed". `savePost` re-validates the
+announcement-type ↔ campaign-kind pair server-side, because the admin picker is
+filtered client-side and a stale tab can still submit a mismatch.
 
 | Piece | Path |
 |---|---|
-| Domain vocabulary (types, labels, sort, date helpers) | `src/lib/announcements.ts` |
-| Public card | `src/components/submission-announcement-card.tsx` |
-| Public feed | `src/routes/index.tsx` → section `#submissions` |
-| Admin form + list | `src/routes/_authenticated/gestion.admin.tsx` → tab `events` (labelled **Submissions**) |
+| Domain vocabulary (types, labels, CTA copy, kind mapping) | `src/lib/announcements.ts` |
+| Public card (Submit button lives here) | `src/components/submission-announcement-card.tsx` |
+| Public feed (announcements only) | `src/routes/index.tsx` → section `#submissions` |
+| Registration page (per-kind form) | `src/routes/register.$campaignId.tsx` |
+| Admin form + list (campaign picker) | `src/routes/_authenticated/gestion.admin.tsx` → tab `events` (labelled **Submissions**) |
 | Server functions | `src/lib/admin-api.ts` → `listPosts` / `savePost` / `deletePost` |
 
 The admin "Submissions" section key stays `"events"` (it is a stored
 `admin_permissions` value and a `get_dashboard_stats` flag) — only the labels
 changed.
+
+**Operational consequence:** a campaign is only reachable if some published
+announcement links to it. Opening a campaign without publishing an announcement
+for it leaves it invisible to students.
 
 ## Verification
 
