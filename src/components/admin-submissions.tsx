@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -364,21 +364,15 @@ export function RegistrationsView({
               No submissions match this filter.
             </p>
           ) : (
-            <div className="mt-4 space-y-4">
-              {visible.map((registration) => (
-                <RegistrationCard
-                  key={registration.id}
-                  registration={registration}
-                  questions={questions}
-                  showDocuments={campaign.kind === "membership"}
-                  onAccept={onAccept}
-                  onRemove={onRemove}
-                  onCheckIn={onCheckIn}
-                  onDelete={onDelete}
-                  processed={registration.status !== "pending"}
-                />
-              ))}
-            </div>
+            <RegistrationTable
+              registrations={visible}
+              questions={questions}
+              showDocuments={campaign.kind === "membership"}
+              onAccept={onAccept}
+              onRemove={onRemove}
+              onCheckIn={onCheckIn}
+              onDelete={onDelete}
+            />
           )}
         </div>
       )}
@@ -386,130 +380,123 @@ export function RegistrationsView({
   );
 }
 
-function RegistrationCard({
+const fullName = (registration: AdminRegistration) =>
+  `${registration.first_name} ${registration.last_name}`.trim();
+
+const STATUS_PILL_CLASS: Record<string, string | undefined> = {
+  accepted: "bg-[#34d399]/20 text-[#6ee7b7]",
+  removed: "bg-[#f43f5e]/15 text-[#fda4af]",
+  pending: "bg-[#f59e0b]/20 text-[#fcd34d]",
+};
+
+function StatusPill({ status }: { status: string }) {
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold tracking-wide uppercase ${
+        STATUS_PILL_CLASS[status] ?? STATUS_PILL_CLASS["pending"]
+      }`}
+    >
+      {status}
+    </span>
+  );
+}
+
+function DiscloseIcon({ open }: { open: boolean }) {
+  return (
+    <ChevronDown
+      aria-hidden="true"
+      className={`size-4 shrink-0 text-[#64748b] transition-transform ${open ? "rotate-180" : ""}`}
+    />
+  );
+}
+
+function RegistrationActions({
   registration,
-  questions,
   onAccept,
   onRemove,
   onCheckIn,
   onDelete,
   processed = false,
-  showDocuments = false,
+  compact = false,
 }: {
   registration: AdminRegistration;
-  questions: CampaignQuestion[];
   onAccept: (registration: AdminRegistration) => void;
   onRemove: (registration: AdminRegistration) => void;
   onCheckIn: (registration: AdminRegistration) => void;
   onDelete: (registration: AdminRegistration) => void;
   processed?: boolean;
-  showDocuments?: boolean;
+  compact?: boolean;
 }) {
-  const name = `${registration.first_name} ${registration.last_name}`.trim();
+  if (processed) return null;
+  const pad = compact ? "px-2.5 py-1.5" : "px-3 py-2.5";
 
   return (
-    <div
-      className={`rounded-2xl border p-4 transition-colors ${
-        processed
-          ? "border-white/5 bg-black/10 opacity-70"
-          : registration.checked_in
-            ? "border-[#38bdf8]/30 bg-[#38bdf8]/5"
-            : "border-white/10 bg-black/20"
-      }`}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-[#2e6bff]/40 bg-[#2e6bff]/15 text-xs font-extrabold text-[#6fa0ff]">
-            {initials(name) || "?"}
-          </span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="font-display text-base font-bold text-white">{name}</p>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold tracking-wide uppercase ${
-                  registration.status === "accepted"
-                    ? "bg-[#34d399]/20 text-[#6ee7b7]"
-                    : registration.status === "removed"
-                      ? "bg-[#f43f5e]/15 text-[#fda4af]"
-                      : "bg-[#f59e0b]/20 text-[#fcd34d]"
-                }`}
-              >
-                {registration.status}
-              </span>
-              {registration.checked_in && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-[#38bdf8]/15 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-[#7dd3fc] uppercase">
-                  <CalendarCheck className="size-3" aria-hidden="true" />
-                  Interviewed
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-[#94a3c8]">
-              {registration.email} · {registration.phone}
-            </p>
-            {registration.checked_in_at && (
-              <p className="text-xs text-[#7dd3fc]">
-                Checked in {new Date(registration.checked_in_at).toLocaleString("en-GB")}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-          {!processed && (
-            <>
-              <button
-                onClick={() => onCheckIn(registration)}
-                title={
-                  registration.checked_in ? "Undo this check-in (mis-click)" : "Mark as interviewed"
-                }
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-xs font-extrabold transition-colors ${
-                  registration.checked_in
-                    ? "border border-[#38bdf8]/40 bg-[#38bdf8]/10 text-[#7dd3fc] hover:bg-[#38bdf8]/20"
-                    : "bg-[#38bdf8]/25 text-[#b7e4ff] hover:bg-[#38bdf8]/40"
-                }`}
-              >
-                {registration.checked_in ? (
-                  <>
-                    <Undo2 className="size-4" />
-                    Uncheck
-                  </>
-                ) : (
-                  <>
-                    <UserCheck className="size-4" />
-                    Check In
-                  </>
-                )}
-              </button>
-              <button
-                onClick={() => onAccept(registration)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#34d399]/20 px-3 py-2 text-xs font-bold text-[#6ee7b7] transition-colors hover:bg-[#34d399]/30"
-              >
-                <Check className="size-3.5" />
-                Accept
-              </button>
-              <button
-                onClick={() => onRemove(registration)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#f43f5e]/20 px-3 py-2 text-xs font-bold text-[#fda4af] transition-colors hover:bg-[#f43f5e]/30"
-              >
-                <Trash2 className="size-3.5" />
-                Remove
-              </button>
-              <button
-                onClick={() => onDelete(registration)}
-                title="Delete this submission and its documents for good"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-[#64748b] transition-colors hover:border-[#f43f5e]/40 hover:bg-[#f43f5e]/10 hover:text-[#fda4af]"
-              >
-                <X className="size-3.5" />
-                Delete
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+    <>
+      <button
+        onClick={() => onCheckIn(registration)}
+        title={registration.checked_in ? "Undo this check-in (mis-click)" : "Mark as interviewed"}
+        className={`inline-flex items-center gap-1.5 rounded-lg text-xs font-extrabold whitespace-nowrap transition-colors ${pad} ${
+          registration.checked_in
+            ? "border border-[#38bdf8]/40 bg-[#38bdf8]/10 text-[#7dd3fc] hover:bg-[#38bdf8]/20"
+            : "bg-[#38bdf8]/25 text-[#b7e4ff] hover:bg-[#38bdf8]/40"
+        }`}
+      >
+        {registration.checked_in ? (
+          <Undo2 className="size-4" aria-hidden="true" />
+        ) : (
+          <UserCheck className="size-4" aria-hidden="true" />
+        )}
+        {registration.checked_in ? "Uncheck" : "Check In"}
+      </button>
+      <button
+        onClick={() => onAccept(registration)}
+        className={`inline-flex items-center gap-1.5 rounded-lg bg-[#34d399]/20 text-xs font-bold whitespace-nowrap text-[#6ee7b7] transition-colors hover:bg-[#34d399]/30 ${pad}`}
+      >
+        <Check className="size-3.5" aria-hidden="true" />
+        Accept
+      </button>
+      <button
+        onClick={() => onRemove(registration)}
+        className={`inline-flex items-center gap-1.5 rounded-lg bg-[#f43f5e]/20 text-xs font-bold whitespace-nowrap text-[#fda4af] transition-colors hover:bg-[#f43f5e]/30 ${pad}`}
+      >
+        <Trash2 className="size-3.5" aria-hidden="true" />
+        Remove
+      </button>
+      <button
+        onClick={() => onDelete(registration)}
+        title="Delete this submission and its documents for good"
+        className={`inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 text-xs font-bold whitespace-nowrap text-[#64748b] transition-colors hover:border-[#f43f5e]/40 hover:bg-[#f43f5e]/10 hover:text-[#fda4af] ${pad}`}
+      >
+        <X className="size-3.5" aria-hidden="true" />
+        Delete
+      </button>
+    </>
+  );
+}
 
-      <div className="mt-3 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
-        <Info label="School year" value={registration.school_year} />
+function RegistrationDetails({
+  registration,
+  questions,
+  showDocuments,
+}: {
+  registration: AdminRegistration;
+  questions: CampaignQuestion[];
+  showDocuments: boolean;
+}) {
+  return (
+    <>
+      <div className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+        <Info label="Email" value={registration.email} />
+        <Info label="Phone" value={registration.phone} />
         <Info label="Department" value={registration.department} />
+        <Info label="School year" value={registration.school_year} />
         <Info label="Submitted" value={new Date(registration.created_at).toLocaleString("en-GB")} />
+        {registration.checked_in_at && (
+          <Info
+            label="Checked in"
+            value={new Date(registration.checked_in_at).toLocaleString("en-GB")}
+          />
+        )}
         {registration.decided_at && (
           <Info
             label={registration.status === "accepted" ? "Accepted" : "Processed"}
@@ -539,7 +526,7 @@ function RegistrationCard({
       )}
 
       {questions.length > 0 && (
-        <div className="mt-3 grid gap-x-6 gap-y-1.5 border-t border-white/5 pt-3 text-sm sm:grid-cols-2">
+        <div className="mt-3 grid gap-x-6 gap-y-2 border-t border-white/5 pt-3 text-sm sm:grid-cols-2">
           {questions.map((question) => {
             const answer = registration.answers?.[question.id] ?? "";
             return (
@@ -547,13 +534,195 @@ function RegistrationCard({
                 <p className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
                   {question.label}
                 </p>
-                <p className="font-semibold text-white">{answer || "—"}</p>
+                <p className="font-semibold text-white">{answer || "\u2014"}</p>
               </div>
             );
           })}
         </div>
       )}
-    </div>
+    </>
+  );
+}
+
+function RegistrationTable({
+  registrations,
+  questions,
+  showDocuments,
+  onAccept,
+  onRemove,
+  onCheckIn,
+  onDelete,
+}: {
+  registrations: AdminRegistration[];
+  questions: CampaignQuestion[];
+  showDocuments: boolean;
+  onAccept: (registration: AdminRegistration) => void;
+  onRemove: (registration: AdminRegistration) => void;
+  onCheckIn: (registration: AdminRegistration) => void;
+  onDelete: (registration: AdminRegistration) => void;
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const toggle = (id: string) => setExpanded((current) => (current === id ? null : id));
+
+  const actionsFor = (registration: AdminRegistration) => (
+    <RegistrationActions
+      registration={registration}
+      onAccept={onAccept}
+      onRemove={onRemove}
+      onCheckIn={onCheckIn}
+      onDelete={onDelete}
+      processed={registration.status !== "pending"}
+      compact
+    />
+  );
+
+  return (
+    <>
+      <div className="mt-4 hidden overflow-x-auto rounded-2xl border border-white/10 sm:block">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-white/[0.04] text-left text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+              <th className="px-4 py-3">Student</th>
+              <th className="px-4 py-3">Department</th>
+              <th className="hidden px-4 py-3 lg:table-cell">Level</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="hidden px-4 py-3 xl:table-cell">Submitted</th>
+              <th className="px-4 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {registrations.map((registration) => {
+              const name = fullName(registration);
+              const isOpen = expanded === registration.id;
+
+              return (
+                <Fragment key={registration.id}>
+                  <tr
+                    className={`hover:bg-white/[0.03] ${
+                      registration.status !== "pending"
+                        ? "bg-black/10 opacity-70"
+                        : registration.checked_in
+                          ? "bg-[#38bdf8]/5"
+                          : ""
+                    }`}
+                  >
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        aria-expanded={isOpen}
+                        aria-label={`${isOpen ? "Hide" : "Show"} details for ${name}`}
+                        onClick={() => toggle(registration.id)}
+                        className="flex w-full items-center gap-3 text-left"
+                      >
+                        <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-[#2e6bff]/40 bg-[#2e6bff]/15 text-[11px] font-extrabold text-[#6fa0ff]">
+                          {initials(name) || "?"}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate font-display text-sm font-bold text-white">
+                            {name}
+                          </span>
+                          <span className="block truncate text-xs text-[#94a3c8]">
+                            {registration.email}
+                          </span>
+                        </span>
+                        <DiscloseIcon open={isOpen} />
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 font-semibold whitespace-nowrap text-white">
+                      {registration.department}
+                    </td>
+                    <td className="hidden px-4 py-3 font-semibold whitespace-nowrap text-white lg:table-cell">
+                      {registration.school_year}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <StatusPill status={registration.status} />
+                        {registration.checked_in && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[#38bdf8]/15 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-[#7dd3fc] uppercase">
+                            <CalendarCheck className="size-3" aria-hidden="true" />
+                            <span className="hidden xl:inline">Interviewed</span>
+                            <span className="xl:hidden">Done</span>
+                          </span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="hidden px-4 py-3 whitespace-nowrap text-[#94a3c8] xl:table-cell">
+                      {new Date(registration.created_at).toLocaleDateString("en-GB")}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        {actionsFor(registration)}
+                      </div>
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan={6} className="bg-black/30 px-4 py-4">
+                        <RegistrationDetails
+                          registration={registration}
+                          questions={questions}
+                          showDocuments={showDocuments}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* A table cannot reflow on a phone, so the same data becomes a stack of
+          cards. Same expansion, same actions, no second source of truth. */}
+      <ul className="mt-4 space-y-3 sm:hidden">
+        {registrations.map((registration) => {
+          const name = fullName(registration);
+          const isOpen = expanded === registration.id;
+
+          return (
+            <li
+              key={registration.id}
+              className={`rounded-2xl border p-3 ${
+                registration.status !== "pending"
+                  ? "border-white/5 bg-black/10 opacity-70"
+                  : registration.checked_in
+                    ? "border-[#38bdf8]/30 bg-[#38bdf8]/5"
+                    : "border-white/10 bg-black/20"
+              }`}
+            >
+              <button
+                type="button"
+                aria-expanded={isOpen}
+                onClick={() => toggle(registration.id)}
+                className="flex w-full items-center gap-2 text-left"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-display text-sm font-bold text-white">
+                    {name}
+                  </span>
+                  <span className="block truncate text-xs text-[#94a3c8]">
+                    {registration.department} \u00b7 {registration.school_year}
+                  </span>
+                </span>
+                <StatusPill status={registration.status} />
+                <DiscloseIcon open={isOpen} />
+              </button>
+              {isOpen && (
+                <div className="mt-3">
+                  <RegistrationDetails
+                    registration={registration}
+                    questions={questions}
+                    showDocuments={showDocuments}
+                  />
+                </div>
+              )}
+              <div className="mt-3 flex flex-wrap gap-1.5">{actionsFor(registration)}</div>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 
