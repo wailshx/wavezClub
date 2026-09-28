@@ -1,7 +1,16 @@
 import { z } from "zod";
 import { DEPARTMENTS, LEVELS } from "@/lib/club";
 
-// Shared types + validation used by the public /register route.
+// Shared types + validation for campaigns, the public application form, and the
+// admin editor. The public route is gone — the form renders inside the
+// announcement card — but the campaign itself still carries the application's
+// settings and the questions it asks.
+
+/** Ceiling on custom questions per submission, enforced in the UI and on save. */
+export const MAX_CUSTOM_QUESTIONS = 12;
+
+/** Ceiling on options per multiple-choice question. */
+export const MAX_QUESTION_OPTIONS = 8;
 
 export type CampaignQuestionType = "text" | "choice";
 

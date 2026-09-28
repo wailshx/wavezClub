@@ -28,8 +28,9 @@ Until the Supabase CLI is linked to this project (`supabase link --project-ref p
 
 `posts` is no longer a news feed. The `event` and `news` kinds are gone from the
 database, the public site and the admin console. Every announcement now exists to
-announce a submission (`submission_type`: `'openday' | 'event'`), and its button
-submits **from the card** to the registration page of the campaign it announces.
+announce a submission (`submission_type`: `'openday' | 'event'`), and the
+application form lives **inside the card** — there is no separate registration
+page anywhere, public or admin.
 
 There is no shared campaign list on the homepage any more — the `#join` section
 and every `hash="join"` link are gone. `submission_type` is bound to the
@@ -37,8 +38,8 @@ campaign kind through `CAMPAIGN_KIND_FOR_SUBMISSION`:
 
 | Announcement | Campaign `kind` | Form the student gets |
 |---|---|---|
-| `openday` | `membership` | `MembershipWizard` — 3 steps: profile, school certificate + ID card upload, custom questions |
-| `event` | `event` | `EventForm` — single step, details only, no documents |
+| `openday` | `membership` | Membership wizard — 3 steps: profile, school certificate + ID card upload, custom questions |
+| `event` | `event` | Event form — single step, details only, no documents |
 
 The link is **nullable on purpose**: an announcement can be written before its
 campaign exists. The public card resolves `campaign_id` against
@@ -51,15 +52,42 @@ filtered client-side and a stale tab can still submit a mismatch.
 | Piece | Path |
 |---|---|
 | Domain vocabulary (types, labels, CTA copy, kind mapping) | `src/lib/announcements.ts` |
-| Public card (Submit button lives here) | `src/components/submission-announcement-card.tsx` |
+| Public card (Submit button + form disclosure live here) | `src/components/submission-announcement-card.tsx` |
+| Both student forms (extracted from the deleted `/register` route) | `src/components/submission-application-form.tsx` |
 | Public feed (announcements only) | `src/routes/index.tsx` → section `#submissions` |
-| Registration page (per-kind form) | `src/routes/register.$campaignId.tsx` |
-| Admin form + list (campaign picker) | `src/routes/_authenticated/gestion.admin.tsx` → tab `events` (labelled **Submissions**) |
+| Admin: form, announcement list, submissions inbox | `src/routes/_authenticated/gestion.admin.tsx` → tab `events` (labelled **Submissions**) |
+| Admin: questions editor, submissions review, check-in | `src/components/admin-submissions.tsx` |
 | Server functions | `src/lib/admin-api.ts` → `listPosts` / `savePost` / `deletePost` |
 
-The admin "Submissions" section key stays `"events"` (it is a stored
-`admin_permissions` value and a `get_dashboard_stats` flag) — only the labels
-changed.
+### One announcement, one campaign, one place
+
+There is no standalone campaign editor. The announcement form *is* the
+application form: `savePost` receives the post **and** its campaign and writes
+both, mirroring the post title into `campaigns.title` and the subtitle into
+`campaigns.description` so the two can never drift. `CAMPAIGN_KIND_FOR_SUBMISSION`
+derives `campaigns.kind`, and re-attaching an existing campaign reuses it rather
+than creating a second one.
+
+An announcement with no `campaign_id` shows an explicit "attach an existing
+registration" picker in the admin form. This matters for rows created before
+`0017`: **saving one without attaching a campaign creates a new one and orphans
+the students who already applied.** The picker lists only campaigns whose kind
+matches the draft's `submission_type`, with their live submission counts.
+
+Each announcement card in the admin list expands into a submissions inbox
+(`CampaignSubmissions`) for reviewing documents, accepting (which adds a member
+for `membership`, and only confirms for `event`), removing, and checking in.
+
+`registration_campaigns` and `registrations` are kept as storage. They were
+folded into the Submissions UI, not into the posts table — submissions are a
+different shape from announcements and merging them would only lose the
+campaign's open/closed state and custom questions.
+
+**Permission keys:** `events` and `registrations` are now equivalent.
+`SUBMISSION_SECTIONS` in `src/lib/admin-admins-api.ts` is the single definition,
+`requireAnySection` accepts either, `setAdminSectionAllowed` writes both in
+lockstep, and the Admins panel renders one "Submissions" switch. `registrations`
+stays in `ADMIN_SECTIONS` so pre-merge grants keep working.
 
 **Operational consequence:** a campaign is only reachable if some published
 announcement links to it. Opening a campaign without publishing an announcement

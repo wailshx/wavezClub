@@ -94,7 +94,9 @@ function Index() {
   // The open-campaign list is no longer rendered as its own section. It is still
   // needed here, as the single source of truth for "is this announcement's
   // submission actually accepting entries?" — `list_open_campaigns` already
-  // filters on `is_open`, so membership of this set IS the open check.
+  // filters on `is_open`, so membership of this map IS the open check. The whole
+  // campaign is handed to the card, not just its id, because the card now renders
+  // the application form in place and needs the questions and document rules.
   const { data: openCampaigns = [] } = useQuery({
     queryKey: ["open-campaigns"],
     queryFn: async () => {
@@ -110,7 +112,7 @@ function Index() {
     },
   });
 
-  const openCampaignIds = new Set(openCampaigns.map((campaign) => campaign.id));
+  const openCampaignsById = new Map(openCampaigns.map((campaign) => [campaign.id, campaign]));
 
   // Feed order: pinned announcements first, then newest.
   const announcements = sortAnnouncements(posts);
@@ -318,9 +320,9 @@ function Index() {
                 key={announcement.id}
                 announcement={announcement}
                 index={index}
-                campaignId={
-                  announcement.campaign_id && openCampaignIds.has(announcement.campaign_id)
-                    ? announcement.campaign_id
+                campaign={
+                  announcement.campaign_id
+                    ? (openCampaignsById.get(announcement.campaign_id) ?? null)
                     : null
                 }
               />

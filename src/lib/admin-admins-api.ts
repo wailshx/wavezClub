@@ -138,6 +138,27 @@ export async function requireSection(context: AdminContext, section: AdminSectio
   }
   throw new Error("You don't have permission to access this section.");
 }
+/**
+ * Sections that all live in the Submissions workspace.
+ *
+ * Submissions absorbed the old standalone Registrations tab, so the two stored
+ * permission keys are equivalent. `registrations` is kept in ADMIN_SECTIONS so
+ * grants made before the merge keep working instead of silently locking anyone
+ * out of their own submissions.
+ */
+export const SUBMISSION_SECTIONS = ["events", "registrations"] as const;
+
+/** `requireSection`, but satisfied by any one of the given sections. */
+export async function requireAnySection(context: AdminContext, ...sections: AdminSection[]) {
+  const access = await loadSessionAccess(context);
+  if (!access.isAdmin) throw new Error("Not authorized");
+  if (access.disabled) throw new Error("Your admin access has been revoked by the owner.");
+  if (access.isOwner || sections.some((section) => access.sections.includes(section))) {
+    return { ...access, supabase: context.supabase };
+  }
+  throw new Error("You don't have permission to access this section.");
+}
+
 export type SectionRequest = AdminSession & { supabase: SupabaseClient<Database> };
 
 /** Owner-only gate — used by the Admins page data functions. */
@@ -278,14 +299,19 @@ export const setAdminSectionAllowed = createServerFn({ method: "POST" })
     const supabaseAdmin = await getSupabaseAdmin();
     const table = permissionsTable(supabaseAdmin);
 
-    const { error: clearError } = await table
-      .delete()
-      .eq("user_id", adminId)
-      .eq("section", section);
-    if (clearError) throw new Error(clearError.message);
-    if (!allowed) {
-      const { error } = await table.insert({ user_id: adminId, section, granted: false });
-      if (error) throw new Error(error.message);
+    // Submissions has two stored keys with identical meaning. Write both so a
+    // grant can never be left half-revoked by a toggle.
+    const sections = SUBMISSION_SECTIONS.includes(section as (typeof SUBMISSION_SECTIONS)[number])
+      ? [...SUBMISSION_SECTIONS]
+      : [section];
+
+    for (const key of sections) {
+      const { error: clearError } = await table.delete().eq("user_id", adminId).eq("section", key);
+      if (clearError) throw new Error(clearError.message);
+      if (!allowed) {
+        const { error } = await table.insert({ user_id: adminId, section: key, granted: false });
+        if (error) throw new Error(error.message);
+      }
     }
     return true;
   });

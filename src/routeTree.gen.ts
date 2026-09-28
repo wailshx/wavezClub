@@ -13,7 +13,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as GestionIndexRouteImport } from './routes/gestion/index'
-import { Route as RegisterCampaignIdRouteImport } from './routes/register.$campaignId'
 import { Route as AuthenticatedGestionAdminRouteImport } from './routes/_authenticated/gestion.admin'
 import { Route as GestionReviewTokenRouteImport } from './routes/gestion/review.$token'
 
@@ -36,11 +35,6 @@ const GestionIndexRoute = GestionIndexRouteImport.update({
   path: '/gestion/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RegisterCampaignIdRoute = RegisterCampaignIdRouteImport.update({
-  id: '/register/$campaignId',
-  path: '/register/$campaignId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AuthenticatedGestionAdminRoute =
   AuthenticatedGestionAdminRouteImport.update({
     id: '/gestion/admin',
@@ -56,7 +50,6 @@ const GestionReviewTokenRoute = GestionReviewTokenRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/register/$campaignId': typeof RegisterCampaignIdRoute
   '/gestion/': typeof GestionIndexRoute
   '/gestion/admin': typeof AuthenticatedGestionAdminRoute
   '/gestion/review/$token': typeof GestionReviewTokenRoute
@@ -64,7 +57,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/register/$campaignId': typeof RegisterCampaignIdRoute
   '/gestion': typeof GestionIndexRoute
   '/gestion/admin': typeof AuthenticatedGestionAdminRoute
   '/gestion/review/$token': typeof GestionReviewTokenRoute
@@ -74,7 +66,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/about': typeof AboutRoute
-  '/register/$campaignId': typeof RegisterCampaignIdRoute
   '/gestion/': typeof GestionIndexRoute
   '/_authenticated/gestion/admin': typeof AuthenticatedGestionAdminRoute
   '/gestion/review/$token': typeof GestionReviewTokenRoute
@@ -82,26 +73,14 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | '/'
-    | '/about'
-    | '/register/$campaignId'
-    | '/gestion/'
-    | '/gestion/admin'
-    | '/gestion/review/$token'
+    '/' | '/about' | '/gestion/' | '/gestion/admin' | '/gestion/review/$token'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/about'
-    | '/register/$campaignId'
-    | '/gestion'
-    | '/gestion/admin'
-    | '/gestion/review/$token'
+  to: '/' | '/about' | '/gestion' | '/gestion/admin' | '/gestion/review/$token'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/about'
-    | '/register/$campaignId'
     | '/gestion/'
     | '/_authenticated/gestion/admin'
     | '/gestion/review/$token'
@@ -111,7 +90,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
-  RegisterCampaignIdRoute: typeof RegisterCampaignIdRoute
   GestionIndexRoute: typeof GestionIndexRoute
   GestionReviewTokenRoute: typeof GestionReviewTokenRoute
 }
@@ -146,13 +124,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GestionIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/register/$campaignId': {
-      id: '/register/$campaignId'
-      path: '/register/$campaignId'
-      fullPath: '/register/$campaignId'
-      preLoaderRoute: typeof RegisterCampaignIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/_authenticated/gestion/admin': {
       id: '/_authenticated/gestion/admin'
       path: '/gestion/admin'
@@ -185,7 +156,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AboutRoute: AboutRoute,
-  RegisterCampaignIdRoute: RegisterCampaignIdRoute,
   GestionIndexRoute: GestionIndexRoute,
   GestionReviewTokenRoute: GestionReviewTokenRoute,
 }

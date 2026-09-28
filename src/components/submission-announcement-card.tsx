@@ -1,9 +1,10 @@
-import { Link } from "@tanstack/react-router";
-import { ArrowRight, CalendarClock, CalendarDays, Compass, MapPin, Pin } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, CalendarClock, CalendarDays, Compass, MapPin, Pin, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { ScrollReveal } from "@/components/scroll-reveal";
 import { PulseDot } from "@/components/pulse-dot";
+import { SubmissionApplicationForm } from "@/components/submission-application-form";
 import {
   SUBMISSION_CTA_CLOSED_LABEL,
   SUBMISSION_CTA_CLOSED_NOTE,
@@ -15,6 +16,7 @@ import {
   type SubmissionAnnouncement,
   type SubmissionType,
 } from "@/lib/announcements";
+import type { OpenCampaign } from "@/lib/registrations";
 
 /**
  * Visual identity per submission type. Open day reads brand-blue, event reads
@@ -67,31 +69,41 @@ function UrgencyChip({ eventDate }: { eventDate: string }) {
  *    this?" before the title is read;
  *  · title → subtitle → body descend in size and weight, so the eye lands on the
  *    title first, the promise second, the detail last;
- *  · one CTA that submits *from this card*, plus a trust line.
+ *  · one CTA that opens the application form *inside this card*, plus a trust line.
  *
- * The CTA points at `/register/$campaignId` for the campaign this announcement
- * announces, so the campaign decides whether the student gets the membership
- * wizard or the event form. When that campaign is missing or closed the button
- * is replaced by a plain note — a link into a closed registration is worse than
- * no link, because the student only finds out after the click.
+ * The application lives in the card: there is no separate registration page.
+ * The CTA reveals the form in place, and the campaign decides what that form is —
+ * the membership wizard (profile, two uploads, questions) or the single-step event
+ * form. When the campaign is missing or closed the button is replaced by a plain
+ * note, because a link into a closed registration is worse than no link.
  *
  * `preview` drops the CTA (a draft must not look clickable) and inherits the
  * caller's colour tokens, so the admin console can render it live.
  */
 function AnnouncementCard({
   announcement,
-  campaignId,
+  campaign,
   preview,
 }: {
   announcement: SubmissionAnnouncement;
-  /** Open campaign this card submits to, or null when it isn't accepting. */
-  campaignId: string | null;
+  /** Open campaign this card applies to, or null when it isn't accepting. */
+  campaign: OpenCampaign | null;
   preview: boolean;
 }) {
   const style = SUBMISSION_STYLE[announcement.submission_type] ?? SUBMISSION_STYLE.openday;
   const TypeIcon = style.Icon;
   const { title, subtitle, body, location, event_date, is_pinned } = announcement;
   const type = announcement.submission_type;
+
+  const [applying, setApplying] = useState(false);
+  const formRef = useRef<HTMLDivElement>(null);
+
+  // The form appears below the fold on a long card, so bring it into view rather
+  // than leaving the student staring at the button they just pressed.
+  useEffect(() => {
+    if (!applying) return;
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [applying]);
 
   return (
     // Wrapper carries the hover treatment so the card can stay `overflow-hidden`
@@ -169,29 +181,42 @@ function AnnouncementCard({
             </p>
           )}
 
-          {/* ── Submit from this card (skipped in the admin preview) ─────── */}
+          {/* ── Apply from this card (skipped in the admin preview) ─────── */}
           {!preview && (
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
-              {campaignId ? (
-                <>
-                  <Link
-                    to="/register/$campaignId"
-                    params={{ campaignId }}
-                    className="cta-pulse clay-md inline-flex items-center gap-2.5 rounded-2xl bg-brand px-8 py-4 text-base font-bold text-primary-foreground transition-transform duration-200 hover:pointer-fine:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 md:text-lg"
+              {campaign ? (
+                applying ? (
+                  <button
+                    type="button"
+                    onClick={() => setApplying(false)}
+                    aria-expanded
+                    className="clay-md inline-flex items-center gap-2.5 rounded-2xl border border-foreground/15 bg-card px-6 py-3.5 text-base font-bold text-brand-deep"
                   >
-                    {SUBMISSION_CTA_LABEL[type]}
-                    <ArrowRight
-                      aria-hidden="true"
-                      className="size-5 transition-transform duration-200 group-hover:translate-x-1"
-                    />
-                  </Link>
-                  <p className="text-sm font-bold text-muted-foreground">
-                    {SUBMISSION_CTA_NOTE[type]}
-                  </p>
-                </>
+                    <X aria-hidden="true" className="size-5" />
+                    Close application
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setApplying(true)}
+                      aria-expanded={false}
+                      className="cta-pulse clay-md inline-flex items-center gap-2.5 rounded-2xl bg-brand px-8 py-4 text-base font-bold text-primary-foreground transition-transform duration-200 hover:pointer-fine:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 md:text-lg"
+                    >
+                      {SUBMISSION_CTA_LABEL[type]}
+                      <ArrowRight
+                        aria-hidden="true"
+                        className="size-5 transition-transform duration-200 group-hover:translate-x-1"
+                      />
+                    </button>
+                    <p className="text-sm font-bold text-muted-foreground">
+                      {SUBMISSION_CTA_NOTE[type]}
+                    </p>
+                  </>
+                )
               ) : (
                 <>
-                  {/* Deliberately not a link — see the component docblock. */}
+                  {/* Deliberately not a button — see the component docblock. */}
                   <span className="inline-flex items-center gap-2.5 rounded-2xl border-2 border-dashed border-foreground/20 px-8 py-4 text-base font-bold text-muted-foreground md:text-lg">
                     {SUBMISSION_CTA_CLOSED_LABEL}
                   </span>
@@ -200,6 +225,13 @@ function AnnouncementCard({
                   </p>
                 </>
               )}
+            </div>
+          )}
+
+          {/* ── The application itself, in place ──────────────────────────── */}
+          {!preview && applying && campaign && (
+            <div ref={formRef} className="mt-6">
+              <SubmissionApplicationForm campaign={campaign} onClose={() => setApplying(false)} />
             </div>
           )}
         </div>
@@ -211,7 +243,7 @@ function AnnouncementCard({
 export function SubmissionAnnouncementCard({
   announcement,
   index,
-  campaignId,
+  campaign,
   preview = false,
 }: {
   announcement: SubmissionAnnouncement;
@@ -220,23 +252,19 @@ export function SubmissionAnnouncementCard({
   /**
    * The announcement's campaign, resolved against the *open* campaign list by
    * the caller: pass null when the link is missing or the campaign has closed,
-   * and the card renders a non-clickable state instead of a dead link.
+   * and the card renders a non-clickable state instead of a dead application.
    */
-  campaignId?: string | null;
+  campaign?: OpenCampaign | null;
   /** Render inside the admin console: no entrance animation, no CTA. */
   preview?: boolean;
 }) {
   // The preview is usually below the fold of a long form, so it must never be
   // gated behind a scroll-triggered reveal.
-  if (preview) return <AnnouncementCard announcement={announcement} campaignId={null} preview />;
+  if (preview) return <AnnouncementCard announcement={announcement} campaign={null} preview />;
 
   return (
     <ScrollReveal delay={Math.min(0.08 * index, 0.24)} scale>
-      <AnnouncementCard
-        announcement={announcement}
-        campaignId={campaignId ?? null}
-        preview={false}
-      />
+      <AnnouncementCard announcement={announcement} campaign={campaign ?? null} preview={false} />
     </ScrollReveal>
   );
 }

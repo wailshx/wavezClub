@@ -6,7 +6,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
 import type { Level } from "@/lib/club";
 import type { CampaignKind, CampaignQuestion } from "@/lib/registrations";
-import { requireSection } from "@/lib/admin-admins-api";
+import { requireAnySection, SUBMISSION_SECTIONS } from "@/lib/admin-admins-api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -118,7 +118,7 @@ export type SaveCampaignInput = z.infer<typeof saveCampaignInputSchema>;
 export const listRegistrationCampaigns = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { supabase } = await requireSection(context, "registrations");
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
 
     const { data: rows, error } = await campaignsTable(supabase).select("*");
     if (error) throw new Error(error.message);
@@ -148,7 +148,7 @@ export const saveRegistrationCampaign = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: SaveCampaignInput) => input)
   .handler(async ({ context, data: input }) => {
-    const { supabase } = await requireSection(context, "registrations");
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
 
     const custom_questions = input.custom_questions.map((question) =>
       question.type === "choice"
@@ -186,7 +186,7 @@ export const setCampaignOpen = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: { id: string; is_open: boolean }) => input)
   .handler(async ({ context, data: { id, is_open } }) => {
-    const { supabase } = await requireSection(context, "registrations");
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
     const { error } = await campaignsTable(supabase).update({ is_open }).eq("id", id);
     if (error) throw new Error(error.message);
     return true;
@@ -197,7 +197,7 @@ export const deleteRegistrationCampaign = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((id: string) => id)
   .handler(async ({ context, data: id }) => {
-    const { supabase } = await requireSection(context, "registrations");
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
     const { error } = await campaignsTable(supabase).delete().eq("id", id);
     if (error) throw new Error(error.message);
     return true;
@@ -208,7 +208,7 @@ export const listCampaignRegistrations = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .validator((campaignId: string) => campaignId)
   .handler(async ({ context, data: campaignId }) => {
-    const { supabase } = await requireSection(context, "registrations");
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
     const { data, error } = await registrationsTable(supabase)
       .select("*")
       .eq("campaign_id", campaignId);
@@ -228,7 +228,7 @@ export const acceptRegistration = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((registrationId: string) => registrationId)
   .handler(async ({ context, data: registrationId }) => {
-    const { supabase } = await requireSection(context, "registrations");
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
 
     const { data } = await registrationsTable(supabase).select("*").eq("id", registrationId);
     const registration = (data ?? [])[0] as unknown as AdminRegistration | undefined;
@@ -270,7 +270,7 @@ export const removeRegistration = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((registrationId: string) => registrationId)
   .handler(async ({ context, data: registrationId }) => {
-    const { supabase } = await requireSection(context, "registrations");
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
     const { error } = await registrationsTable(supabase)
       .update({ status: "removed", decided_at: new Date().toISOString() })
       .eq("id", registrationId);
@@ -283,7 +283,7 @@ export const toggleRegistrationCheckIn = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: { id: string; checked_in: boolean }) => input)
   .handler(async ({ context, data: { id, checked_in } }) => {
-    const { supabase } = await requireSection(context, "registrations");
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
     const { error } = await registrationsTable(supabase)
       .update({
         checked_in,
@@ -303,7 +303,7 @@ export const getRegistrationDocumentUrl = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: { registrationId: string; document: RegistrationDocumentKey }) => input)
   .handler(async ({ context, data: { registrationId, document } }) => {
-    const { supabase } = await requireSection(context, "registrations");
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
 
     const column =
       document === "school_certificate" ? "school_certificate_url" : "identity_card_url";

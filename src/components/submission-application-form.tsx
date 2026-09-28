@@ -1,6 +1,4 @@
-import { createFileRoute, Link, useParams } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Check, FileText, Loader2, X } from "lucide-react";
 
@@ -13,11 +11,6 @@ import {
   type OpenCampaign,
 } from "@/lib/registrations";
 import { AlertBanner } from "@/components/alert-banner";
-import logo from "@/assets/wavez-logo.png";
-
-export const Route = createFileRoute("/register/$campaignId")({
-  component: RegisterCampaign,
-});
 
 const labelClass = "text-xs font-extrabold uppercase tracking-wide text-brand-deep/80";
 const inputClass =
@@ -26,8 +19,6 @@ const inputClass =
 const MAX_DOC_BYTES = 5 * 1024 * 1024;
 const ACCEPT_SCHOOL = "application/pdf,image/png,image/jpeg,image/webp";
 const ACCEPT_IDENTITY = "image/png,image/jpeg,image/webp";
-
-type RpcResult = { data: unknown; error: { message: string } | null };
 
 type ProfileState = {
   firstName: string;
@@ -60,93 +51,61 @@ function buildInitialAnswers(campaign: OpenCampaign): Record<string, string> {
   return answers;
 }
 
-function RegisterCampaign() {
-  const params = useParams({ from: "/register/$campaignId" });
-
-  const { data: campaign, isLoading } = useQuery({
-    queryKey: ["open-campaign", params.campaignId],
-    queryFn: async () => {
-      const rpc = supabase as unknown as { rpc: (fn: string) => Promise<RpcResult> };
-      const { data, error } = await rpc.rpc("list_open_campaigns");
-      if (error) throw error;
-      const list = (data ?? []) as OpenCampaign[];
-      return list.find((item) => item.id === params.campaignId) ?? null;
-    },
+async function insertRegistration(
+  campaign: OpenCampaign,
+  payload: {
+    profile: ProfileState;
+    answers: Record<string, string>;
+    school_certificate_url?: string | null;
+    identity_card_url?: string | null;
+  },
+) {
+  const db = supabase as unknown as {
+    from: (table: string) => {
+      insert: (row: object) => Promise<{ error: { message: string } | null }>;
+    };
+  };
+  return db.from("registrations").insert({
+    campaign_id: campaign.id,
+    first_name: payload.profile.firstName,
+    last_name: payload.profile.lastName,
+    department: payload.profile.department,
+    email: payload.profile.email.toLowerCase(),
+    phone: payload.profile.phone,
+    school_year: payload.profile.schoolYear,
+    answers: payload.answers,
+    ...(payload.school_certificate_url
+      ? { school_certificate_url: payload.school_certificate_url }
+      : {}),
+    ...(payload.identity_card_url ? { identity_card_url: payload.identity_card_url } : {}),
   });
+}
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <p className="font-semibold text-muted-foreground">Loading…</p>
-      </div>
-    );
-  }
-
-  if (!campaign) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="hero-glass max-w-md rounded-4xl p-8 text-center">
-          <h1 className="font-display text-2xl font-bold text-brand-deep">
-            This registration has closed
-          </h1>
-          <p className="mt-2 font-semibold text-muted-foreground">
-            The campaign isn't open right now — check the home page for other open registrations.
-          </p>
-          <div className="mt-6">
-            <Link
-              to="/"
-              className="clay-md inline-flex items-center justify-center rounded-2xl bg-brand px-6 py-3 font-bold text-primary-foreground"
-            >
-              Back to home
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-background">
-      <header className="mx-auto max-w-6xl px-5 pt-6">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <img src={logo} alt="Wavez Club logo" width={64} height={64} className="shrink-0" />
-            <div className="min-w-0">
-              <p className="truncate font-display text-lg leading-none font-bold text-brand-deep">
-                Wavez
-              </p>
-              <p className="truncate text-[11px] font-semibold tracking-wide text-muted-foreground">
-                Club · Register
-              </p>
-            </div>
-          </div>
-          <Link
-            to="/"
-            className="clay-sm rounded-2xl bg-card px-5 py-2.5 text-sm font-bold text-brand-deep"
-          >
-            Back to home
-          </Link>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-2xl px-5 py-10 md:py-14">
-        {campaign.kind === "event" ? (
-          <EventForm campaign={campaign} />
-        ) : (
-          <MembershipWizard campaign={campaign} />
-        )}
-      </main>
-    </div>
+/**
+ * The public application form, rendered *inside* an announcement card.
+ *
+ * The campaign decides the shape: `event` campaigns get the single-step details
+ * form, `membership` campaigns get the 3-step wizard with the two document
+ * uploads. It writes straight into `registrations` through the anon client —
+ * RLS only accepts the insert while the campaign is open.
+ */
+export function SubmissionApplicationForm({
+  campaign,
+  onClose,
+}: {
+  campaign: OpenCampaign;
+  onClose: () => void;
+}) {
+  return campaign.kind === "event" ? (
+    <EventForm campaign={campaign} onClose={onClose} />
+  ) : (
+    <MembershipWizard campaign={campaign} onClose={onClose} />
   );
 }
 
-// ─── Event campaigns: existing single-step form (unchanged) ─────────────────
+// ─── Event campaigns: single-step details form ─────────────────────────────
 
-const eventLabelClass = "text-xs font-extrabold uppercase tracking-wide text-brand-deep/80";
-const eventInputClass =
-  "clay-sm mt-1.5 w-full rounded-2xl bg-background px-4 py-3 font-semibold text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-brand";
-
-function EventForm({ campaign }: { campaign: OpenCampaign }) {
+function EventForm({ campaign, onClose }: { campaign: OpenCampaign; onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -175,19 +134,8 @@ function EventForm({ campaign }: { campaign: OpenCampaign }) {
 
     setBusy(true);
     setFormError(null);
-    const db = supabase as unknown as {
-      from: (table: string) => {
-        insert: (row: object) => Promise<{ error: { message: string } | null }>;
-      };
-    };
-    const { error } = await db.from("registrations").insert({
-      campaign_id: campaign.id,
-      first_name: parsed.data.firstName,
-      last_name: parsed.data.lastName,
-      department: parsed.data.department,
-      email: parsed.data.email.toLowerCase(),
-      phone: parsed.data.phone,
-      school_year: parsed.data.schoolYear,
+    const { error } = await insertRegistration(campaign, {
+      profile: parsed.data,
       answers: parsed.data.answers,
     });
     setBusy(false);
@@ -201,173 +149,163 @@ function EventForm({ campaign }: { campaign: OpenCampaign }) {
     toast.success("You're confirmed for the event!");
   }
 
-  return (
-    <div className="hero-glass rounded-4xl p-8 md:p-12">
-      {done ? (
-        <>
-          <span className="inline-flex items-center rounded-full bg-mint/25 px-4 py-1.5 text-xs font-extrabold text-mint-foreground">
-            Application received
-          </span>
-          <h1 className="mt-4 font-display text-3xl font-bold text-brand-deep md:text-4xl">
-            Thanks — you're in the list!
-          </h1>
-          <p className="mt-3 font-semibold text-foreground/75">
+  if (done) {
+    return (
+      <SuccessPanel
+        title="Thanks — you're in the list!"
+        body={
+          <>
             You're confirmed for <span className="font-extrabold">{campaign.title}</span>. The club
             team will email you the event details — no membership needed.
-          </p>
-          <div className="mt-7 flex flex-wrap gap-3">
-            <Link
-              to="/"
-              className="clay-md rounded-2xl bg-brand px-7 py-3.5 font-bold text-primary-foreground"
-            >
-              Back to home
-            </Link>
-            <button
-              onClick={() => setDone(false)}
-              className="clay-sm rounded-2xl bg-card px-7 py-3.5 font-bold text-brand-deep"
-            >
-              Apply again
-            </button>
-          </div>
-        </>
-      ) : (
-        <>
-          <span className="inline-flex items-center rounded-full bg-mint/25 px-4 py-1.5 text-xs font-extrabold text-mint-foreground">
-            Open registration
-          </span>
-          <h1 className="mt-4 font-display text-3xl font-bold text-brand-deep md:text-4xl">
-            {campaign.title}
-          </h1>
-          {campaign.description && (
-            <p className="mt-3 font-semibold text-foreground/75">{campaign.description}</p>
-          )}
+          </>
+        }
+        onClose={onClose}
+        onAgain={() => setDone(false)}
+        againLabel="Apply again"
+      />
+    );
+  }
 
-          {formError && (
-            <div
-              role="alert"
-              className="mt-6 rounded-2xl border border-red-300 bg-red-100/70 px-4 py-3 text-sm font-bold text-red-700"
-            >
-              {formError}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <label className={eventLabelClass} htmlFor="firstName">
-                First name
-              </label>
-              <input
-                id="firstName"
-                name="firstName"
-                required
-                maxLength={80}
-                placeholder="Yasmine"
-                className={eventInputClass}
-              />
-            </div>
-            <div>
-              <label className={eventLabelClass} htmlFor="lastName">
-                Last name
-              </label>
-              <input
-                id="lastName"
-                name="lastName"
-                required
-                maxLength={80}
-                placeholder="Boudiaf"
-                className={eventInputClass}
-              />
-            </div>
-            <div>
-              <label className={eventLabelClass} htmlFor="department">
-                Department
-              </label>
-              <select id="department" name="department" className={eventInputClass}>
-                {DEPARTMENTS.map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={eventLabelClass} htmlFor="schoolYear">
-                School year
-              </label>
-              <select id="schoolYear" name="schoolYear" className={eventInputClass}>
-                {LEVELS.map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={eventLabelClass} htmlFor="email">
-                Email
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                required
-                maxLength={255}
-                placeholder="yasmine@univ-sba.dz"
-                className={eventInputClass}
-              />
-            </div>
-            <div>
-              <label className={eventLabelClass} htmlFor="phone">
-                Phone
-              </label>
-              <input
-                id="phone"
-                name="phone"
-                type="tel"
-                required
-                maxLength={30}
-                placeholder="0550 12 34 56"
-                className={eventInputClass}
-              />
-            </div>
-
-            {campaign.custom_questions.map((question: CampaignQuestion) => (
-              <div key={question.id} className="md:col-span-2">
-                <label className={eventLabelClass} htmlFor={`answer_${question.id}`}>
-                  {question.label}
-                </label>
-                {question.type === "choice" ? (
-                  <select
-                    id={`answer_${question.id}`}
-                    name={`answer_${question.id}`}
-                    className={eventInputClass}
-                  >
-                    {(question.options ?? []).map((option) => (
-                      <option key={option}>{option}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <textarea
-                    id={`answer_${question.id}`}
-                    name={`answer_${question.id}`}
-                    required
-                    rows={3}
-                    maxLength={1000}
-                    placeholder="Your answer"
-                    className={eventInputClass}
-                  />
-                )}
-              </div>
-            ))}
-
-            <div className="mt-2 md:col-span-2">
-              <button
-                type="submit"
-                disabled={busy}
-                className="clay-md w-full rounded-2xl bg-brand px-8 py-3.5 font-extrabold text-primary-foreground disabled:opacity-70"
-              >
-                {busy ? "Sending…" : "Send my application"}
-              </button>
-            </div>
-          </form>
-        </>
+  return (
+    <div className="rounded-3xl border border-foreground/10 bg-background/70 p-5 md:p-6">
+      <p className="text-[11px] font-extrabold tracking-wide text-muted-foreground uppercase">
+        Event sign-up
+      </p>
+      {campaign.description && (
+        <p className="mt-1.5 text-sm font-semibold text-foreground/75">{campaign.description}</p>
       )}
+
+      {formError && (
+        <div
+          role="alert"
+          className="mt-5 rounded-2xl border border-red-300 bg-red-100/70 px-4 py-3 text-sm font-bold text-red-700"
+        >
+          {formError}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div>
+          <label className={labelClass} htmlFor="firstName">
+            First name
+          </label>
+          <input
+            id="firstName"
+            name="firstName"
+            required
+            maxLength={80}
+            placeholder="Yasmine"
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="lastName">
+            Last name
+          </label>
+          <input
+            id="lastName"
+            name="lastName"
+            required
+            maxLength={80}
+            placeholder="Boudiaf"
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="department">
+            Department
+          </label>
+          <select id="department" name="department" className={inputClass}>
+            {DEPARTMENTS.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="schoolYear">
+            School year
+          </label>
+          <select id="schoolYear" name="schoolYear" className={inputClass}>
+            {LEVELS.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="email">
+            Email
+          </label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            required
+            maxLength={255}
+            placeholder="yasmine@univ-sba.dz"
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="phone">
+            Phone
+          </label>
+          <input
+            id="phone"
+            name="phone"
+            type="tel"
+            required
+            maxLength={30}
+            placeholder="0550 12 34 56"
+            className={inputClass}
+          />
+        </div>
+
+        {campaign.custom_questions.map((question: CampaignQuestion) => (
+          <div key={question.id} className="md:col-span-2">
+            <label className={labelClass} htmlFor={`answer_${question.id}`}>
+              {question.label}
+            </label>
+            {question.type === "choice" ? (
+              <select
+                id={`answer_${question.id}`}
+                name={`answer_${question.id}`}
+                className={inputClass}
+              >
+                {(question.options ?? []).map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            ) : (
+              <textarea
+                id={`answer_${question.id}`}
+                name={`answer_${question.id}`}
+                required
+                rows={3}
+                maxLength={1000}
+                placeholder="Your answer"
+                className={inputClass}
+              />
+            )}
+          </div>
+        ))}
+
+        <div className="flex flex-wrap gap-3 md:col-span-2">
+          <button
+            type="submit"
+            disabled={busy}
+            className="clay-md rounded-2xl bg-brand px-8 py-3.5 font-extrabold text-primary-foreground disabled:opacity-70"
+          >
+            {busy ? "Sending…" : "Send my application"}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="clay-sm rounded-2xl bg-card px-6 py-3.5 font-bold text-brand-deep"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -502,7 +440,7 @@ function DocField({
   );
 }
 
-function MembershipWizard({ campaign }: { campaign: OpenCampaign }) {
+function MembershipWizard({ campaign, onClose }: { campaign: OpenCampaign; onClose: () => void }) {
   const [step, setStep] = useState(1);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -516,6 +454,17 @@ function MembershipWizard({ campaign }: { campaign: OpenCampaign }) {
   const [answers, setAnswers] = useState<Record<string, string>>(() =>
     buildInitialAnswers(campaign),
   );
+
+  // Cards mount and unmount as they are opened and closed, so the object URLs
+  // backing the document previews have to be released with them.
+  useEffect(() => {
+    const previews = [schoolDoc?.preview, identityDoc?.preview].filter(
+      (value): value is string => typeof value === "string",
+    );
+    return () => {
+      for (const url of previews) URL.revokeObjectURL(url);
+    };
+  }, [schoolDoc, identityDoc]);
 
   const step1Valid = registrationBaseSchema.safeParse(profile).success;
   const step2Valid = Boolean(schoolDoc && identityDoc && !schoolError && !identityError);
@@ -577,6 +526,16 @@ function MembershipWizard({ campaign }: { campaign: OpenCampaign }) {
     return path;
   }
 
+  function reset() {
+    setDone(false);
+    setStep(1);
+    setProfile(blankProfile);
+    setSchoolDoc(null);
+    setIdentityDoc(null);
+    setAnswers(buildInitialAnswers(campaign));
+    setFormError(null);
+  }
+
   async function handleSubmit() {
     if (!schoolDoc || !identityDoc) {
       setFormError("Please attach both documents on the Documents step.");
@@ -611,19 +570,8 @@ function MembershipWizard({ campaign }: { campaign: OpenCampaign }) {
     }
     setUploadStep("none");
 
-    const db = supabase as unknown as {
-      from: (table: string) => {
-        insert: (row: object) => Promise<{ error: { message: string } | null }>;
-      };
-    };
-    const { error } = await db.from("registrations").insert({
-      campaign_id: campaign.id,
-      first_name: parsed.data.firstName,
-      last_name: parsed.data.lastName,
-      department: parsed.data.department,
-      email: parsed.data.email.toLowerCase(),
-      phone: parsed.data.phone,
-      school_year: parsed.data.schoolYear,
+    const { error } = await insertRegistration(campaign, {
+      profile: parsed.data,
       answers: parsed.data.answers,
       school_certificate_url: schoolPath,
       identity_card_url: identityPath,
@@ -640,64 +588,37 @@ function MembershipWizard({ campaign }: { campaign: OpenCampaign }) {
 
   if (done) {
     return (
-      <div className="hero-glass rounded-4xl p-8 md:p-12">
-        <AlertBanner variant="success" title="Success" onDismiss={() => setDone(false)}>
-          Your registration has been submitted successfully and we've received your documents.
-        </AlertBanner>
-        <span className="mt-6 inline-flex items-center rounded-full bg-mint/25 px-4 py-1.5 text-xs font-extrabold text-mint-foreground">
-          Application received
-        </span>
-        <h1 className="mt-4 font-display text-3xl font-bold text-brand-deep md:text-4xl">
-          Thanks — you're in the list!
-        </h1>
-        <p className="mt-3 font-semibold text-foreground/75">
-          Your submission for <span className="font-extrabold">{campaign.title}</span> has been
-          received. The club team will review your profile and documents, then contact you by email.
-        </p>
-        <div className="mt-7 flex flex-wrap gap-3">
-          <Link
-            to="/"
-            className="clay-md rounded-2xl bg-brand px-7 py-3.5 font-bold text-primary-foreground"
-          >
-            Back to home
-          </Link>
-          <button
-            onClick={() => {
-              setDone(false);
-              setStep(1);
-              setProfile(blankProfile);
-              setSchoolDoc(null);
-              setIdentityDoc(null);
-              setAnswers(buildInitialAnswers(campaign));
-              setFormError(null);
-            }}
-            className="clay-sm rounded-2xl bg-card px-7 py-3.5 font-bold text-brand-deep"
-          >
-            Apply again
-          </button>
-        </div>
-      </div>
+      <SuccessPanel
+        title="Thanks — you're in the list!"
+        body={
+          <>
+            Your submission for <span className="font-extrabold">{campaign.title}</span> has been
+            received. The club team will review your profile and documents, then contact you by
+            email.
+          </>
+        }
+        onClose={onClose}
+        onAgain={reset}
+        againLabel="Apply again"
+      />
     );
   }
 
   return (
-    <div className="hero-glass rounded-4xl p-8 md:p-12">
-      <span className="inline-flex items-center rounded-full bg-mint/25 px-4 py-1.5 text-xs font-extrabold text-mint-foreground">
-        Open registration
-      </span>
-      <h1 className="mt-4 font-display text-3xl font-bold text-brand-deep md:text-4xl">
-        {campaign.title}
-      </h1>
+    <div className="rounded-3xl border border-foreground/10 bg-background/70 p-5 md:p-6">
+      <p className="text-[11px] font-extrabold tracking-wide text-muted-foreground uppercase">
+        Membership application
+      </p>
       {campaign.description && (
-        <p className="mt-3 font-semibold text-foreground/75">{campaign.description}</p>
+        <p className="mt-1.5 text-sm font-semibold text-foreground/75">{campaign.description}</p>
       )}
 
-      <div className="mt-8">
+      <div className="mt-5">
         <Stepper current={step} />
       </div>
 
       {formError && (
-        <div className="mt-6">
+        <div className="mt-5">
           <AlertBanner variant="error" title="Error" onDismiss={() => setFormError(null)}>
             {formError}
           </AlertBanner>
@@ -707,7 +628,7 @@ function MembershipWizard({ campaign }: { campaign: OpenCampaign }) {
       {step === 1 && (
         <section
           aria-label="Step 1 — Profile"
-          className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2"
+          className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2"
         >
           <div>
             <label className={labelClass} htmlFor="w-firstName">
@@ -805,7 +726,7 @@ function MembershipWizard({ campaign }: { campaign: OpenCampaign }) {
       )}
 
       {step === 2 && (
-        <section aria-label="Step 2 — Documents" className="mt-8 grid grid-cols-1 gap-4">
+        <section aria-label="Step 2 — Documents" className="mt-6 grid grid-cols-1 gap-4">
           <DocField
             titleLabel="School certificate"
             acceptLabel="PDF, JPG or PNG"
@@ -834,7 +755,7 @@ function MembershipWizard({ campaign }: { campaign: OpenCampaign }) {
       )}
 
       {step === 3 && (
-        <section aria-label="Step 3 — Questions" className="mt-8 grid grid-cols-1 gap-4">
+        <section aria-label="Step 3 — Questions" className="mt-6 grid grid-cols-1 gap-4">
           {campaign.custom_questions.length === 0 ? (
             <p className="font-semibold text-muted-foreground">
               No extra questions for this campaign — review your details and submit.
@@ -876,7 +797,7 @@ function MembershipWizard({ campaign }: { campaign: OpenCampaign }) {
             ))
           )}
 
-          {step === 3 && uploadStep !== "none" && (
+          {uploadStep !== "none" && (
             <div className="rounded-2xl border border-brand/30 bg-brand/5 px-4 py-3">
               <p className="flex items-center gap-2 text-sm font-bold text-brand-deep">
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -890,7 +811,7 @@ function MembershipWizard({ campaign }: { campaign: OpenCampaign }) {
         </section>
       )}
 
-      <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={() => setStep((current) => Math.max(current - 1, 1))}
@@ -899,35 +820,88 @@ function MembershipWizard({ campaign }: { campaign: OpenCampaign }) {
         >
           Back
         </button>
-        {step < 3 ? (
+        <div className="flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => setStep((current) => current + 1)}
-            disabled={(step === 1 && !step1Valid) || (step === 2 && !step2Valid) || busy}
-            className="clay-md rounded-2xl bg-brand px-8 py-3.5 font-extrabold text-primary-foreground disabled:opacity-50"
+            onClick={onClose}
+            disabled={busy}
+            className="clay-sm rounded-2xl bg-card px-6 py-3 font-bold text-brand-deep disabled:opacity-50"
           >
-            Next
+            Cancel
           </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!step3Valid || busy}
-            className="clay-md inline-flex items-center gap-2 rounded-2xl bg-brand px-8 py-3.5 font-extrabold text-primary-foreground disabled:opacity-50"
-          >
-            {busy ? (
-              <>
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                Submitting…
-              </>
-            ) : (
-              <>
-                <Check className="size-4" aria-hidden="true" />
-                Submit application
-              </>
-            )}
-          </button>
-        )}
+          {step < 3 ? (
+            <button
+              type="button"
+              onClick={() => setStep((current) => current + 1)}
+              disabled={(step === 1 && !step1Valid) || (step === 2 && !step2Valid) || busy}
+              className="clay-md rounded-2xl bg-brand px-8 py-3 font-extrabold text-primary-foreground disabled:opacity-50"
+            >
+              Next
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!step3Valid || busy}
+              className="clay-md inline-flex items-center gap-2 rounded-2xl bg-brand px-8 py-3 font-extrabold text-primary-foreground disabled:opacity-50"
+            >
+              {busy ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  Submitting…
+                </>
+              ) : (
+                <>
+                  <Check className="size-4" aria-hidden="true" />
+                  Submit application
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SuccessPanel({
+  title,
+  body,
+  onClose,
+  onAgain,
+  againLabel,
+}: {
+  title: string;
+  body: React.ReactNode;
+  onClose: () => void;
+  onAgain: () => void;
+  againLabel: string;
+}) {
+  return (
+    <div className="rounded-3xl border border-brand/20 bg-brand/5 p-5 md:p-6">
+      <AlertBanner variant="success" title="Success" onDismiss={onAgain}>
+        {title}
+      </AlertBanner>
+      <span className="mt-5 inline-flex items-center rounded-full bg-mint/25 px-4 py-1.5 text-xs font-extrabold text-mint-foreground">
+        Application received
+      </span>
+      <h3 className="mt-3 font-display text-2xl font-bold text-brand-deep">{title}</h3>
+      <p className="mt-2 text-sm font-semibold text-foreground/75">{body}</p>
+      <div className="mt-5 flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="clay-md rounded-2xl bg-brand px-6 py-3 font-bold text-primary-foreground"
+        >
+          Done
+        </button>
+        <button
+          type="button"
+          onClick={onAgain}
+          className="clay-sm rounded-2xl bg-card px-6 py-3 font-bold text-brand-deep"
+        >
+          {againLabel}
+        </button>
       </div>
     </div>
   );

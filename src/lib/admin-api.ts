@@ -9,9 +9,14 @@ import {
   isSubmissionType,
   type SubmissionType,
 } from "@/lib/announcements";
+import {
+  MAX_CUSTOM_QUESTIONS,
+  type CampaignKind,
+  type CampaignQuestion,
+} from "@/lib/registrations";
 import { MAX_LEADER_DESCRIPTION } from "@/lib/leaders";
 import { isValidLinkedinUrl, TEAM_CATEGORIES, type TeamCategory } from "@/lib/team";
-import { requireSection } from "@/lib/admin-admins-api";
+import { requireAnySection, requireSection, SUBMISSION_SECTIONS } from "@/lib/admin-admins-api";
 
 export type MemberLevel = "L1" | "L2" | "L3" | "M1" | "M2";
 
@@ -55,6 +60,20 @@ export type AdminPost = {
   is_pinned: boolean;
   published: boolean;
   created_at: string;
+};
+
+/**
+ * The application settings that belong to an announcement.
+ *
+ * These used to live on a separate `registration_campaigns` row edited from
+ * their own admin tab. They are now part of the announcement itself, because
+ * the card *is* the application: an open day and its membership wizard cannot be
+ * created, edited or reasoned about separately without the two drifting apart.
+ */
+export type AdminPostCampaign = {
+  /** Whether the public card offers the form at all. */
+  is_open: boolean;
+  custom_questions: CampaignQuestion[];
 };
 
 export type AdminEmailDraft = {
@@ -132,7 +151,13 @@ const teamTable = (supabase: SupabaseClient<Database>) =>
  * hand-trimmed `Database` type, and `LooseTable` cannot chain filters, so this
  * one lookup carries its own minimal shape instead of widening the shared type.
  */
-async function readCampaignKind(
+/**
+ * Read the campaign an announcement points at, or null.
+ *
+ * The hand-trimmed generated types do not include `registration_campaigns`, so
+ * the table is reached through a local structural type.
+ */
+async function readCampaign(
   supabase: SupabaseClient<Database>,
   campaignId: string,
 ): Promise<{ id: string; kind: string } | null> {
@@ -157,6 +182,70 @@ async function readCampaignKind(
   const { data, error } = await table.select("id, kind").eq("id", campaignId).maybeSingle();
   if (error) throw new Error(error.message);
   return data ?? null;
+}
+
+/** Create or update the campaign that backs an announcement's application form. */
+async function writeCampaign(
+  supabase: SupabaseClient<Database>,
+  args: {
+    existingId: string | null;
+    title: string;
+    description: string;
+    kind: CampaignKind;
+    is_open: boolean;
+    custom_questions: CampaignQuestion[];
+  },
+): Promise<string> {
+  const table = (
+    supabase as unknown as {
+      from: (name: string) => {
+        insert: (row: object) => {
+          select: (columns: string) => {
+            single: () => Promise<{
+              data: { id: string } | null;
+              error: { message: string } | null;
+            }>;
+          };
+        };
+        update: (row: object) => {
+          eq: (
+            column: string,
+            value: string,
+          ) => {
+            select: (columns: string) => {
+              single: () => Promise<{
+                data: { id: string } | null;
+                error: { message: string } | null;
+              }>;
+            };
+          };
+        };
+      };
+    }
+  ).from("registration_campaigns");
+
+  // The title and description are mirrors of the announcement: the campaign is
+  // the storage for the application, the post is what the student reads. Keeping
+  // one source of truth is why this can no longer drift out of sync.
+  const row = {
+    title: args.title,
+    description: args.description,
+    kind: args.kind,
+    is_open: args.is_open,
+    custom_questions: args.custom_questions,
+  };
+
+  if (args.existingId) {
+    const { data, error } = await table.update(row).eq("id", args.existingId).select("id").single();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("Could not update the application form for this announcement");
+    return data.id;
+  }
+
+  const { data, error } = await table.insert(row).select("id").single();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Could not create the application form for this announcement");
+  return data.id;
 }
 
 async function requireAdmin(context: AdminContext) {
@@ -298,7 +387,7 @@ export const getMemberDocumentUrl = createServerFn({ method: "POST" })
 export const listPosts = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { supabase } = await requireSection(context, "events");
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
     const { data, error } = await supabase
       .from("posts")
       .select("*")
@@ -315,9 +404,9 @@ const MAX_LOCATION = 160;
 
 export const savePost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .validator((post: AdminPost) => post)
+  .validator((post: AdminPost & { campaign: AdminPostCampaign }) => post)
   .handler(async ({ context, data: post }) => {
-    const { supabase } = await requireSection(context, "events");
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
 
     const title = post.title.trim();
     if (!title) throw new Error("Title is required");
@@ -328,22 +417,31 @@ export const savePost = createServerFn({ method: "POST" })
     if (parsedDate && Number.isNaN(parsedDate.getTime())) {
       throw new Error("Invalid date & time");
     }
-
-    // The announcement decides which registration form a student gets, so the
-    // linked campaign's kind must agree with the announcement's type. Re-checked
-    // here (not just in the form) because the picker is filtered client-side and
-    // a stale tab can still submit a mismatched pair.
-    const campaignId = post.campaign_id || null;
-    if (campaignId) {
-      const campaign = await readCampaignKind(supabase, campaignId);
-      if (!campaign) throw new Error("That registration no longer exists");
-      if (campaign.kind !== CAMPAIGN_KIND_FOR_SUBMISSION[post.submission_type]) {
-        throw new Error(
-          `An ${post.submission_type === "openday" ? "open day" : "event"} announcement must ` +
-            `point at a ${CAMPAIGN_KIND_FOR_SUBMISSION[post.submission_type]} campaign`,
-        );
-      }
+    if (post.campaign.custom_questions.length > MAX_CUSTOM_QUESTIONS) {
+      throw new Error(`At most ${MAX_CUSTOM_QUESTIONS} questions per submission`);
     }
+
+    // An announcement and its application are saved as one unit, so the kind is
+    // derived from the announcement type rather than chosen separately: an open
+    // day can only ever drive a membership campaign, an event an event one.
+    const kind = CAMPAIGN_KIND_FOR_SUBMISSION[post.submission_type];
+
+    // Reuse the campaign this announcement already owns. An announcement created
+    // before this merge can have none, in which case one is created for it.
+    let existingCampaignId: string | null = post.campaign_id ?? null;
+    if (existingCampaignId) {
+      const existing = await readCampaign(supabase, existingCampaignId);
+      if (!existing) existingCampaignId = null;
+    }
+
+    const campaignId = await writeCampaign(supabase, {
+      existingId: existingCampaignId,
+      title: title.slice(0, MAX_TITLE),
+      description: post.subtitle.trim().slice(0, MAX_SUBTITLE),
+      kind,
+      is_open: post.campaign.is_open === true,
+      custom_questions: post.campaign.custom_questions,
+    });
 
     const payload = {
       kind: ANNOUNCEMENT_KIND,
@@ -369,7 +467,7 @@ export const deletePost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((id: string) => id)
   .handler(async ({ context, data: id }) => {
-    const { supabase } = await requireSection(context, "events");
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
     const { error } = await supabase.from("posts").delete().eq("id", id);
     if (error) throw new Error(error.message);
     return true;

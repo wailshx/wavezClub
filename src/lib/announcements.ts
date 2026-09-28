@@ -7,11 +7,12 @@
 // student that a submission is open. `submission_type` says *which* submission.
 //
 // An announcement is also the only entry point to registration (migration 0017):
-// its "Submit" button goes to `/register/$campaignId` for the ONE campaign it
-// announces, so the campaign drives which form the student fills in. The old
-// shared `#join` campaign list is gone — two announcements that point at one
-// undifferentiated form would have hidden the difference between an open-day
-// membership drive (documents required) and an event sign-up (none).
+// its "Submit" button reveals the application form *inside the card*, and the ONE
+// campaign it announces drives which form that is. There is no separate
+// registration page and no shared `#join` campaign list any more — two
+// announcements pointing at one undifferentiated form would have hidden the
+// difference between an open-day membership drive (documents required) and an
+// event sign-up (none).
 
 import type { CampaignKind } from "@/lib/registrations";
 
@@ -59,9 +60,8 @@ export const SUBMISSION_TYPE_HINT: Record<SubmissionType, string> = {
 };
 
 /**
- * The card's call to action. Both send the student to the same route — the
- * campaign they land on decides which form they get — but the wording has to
- * match what they are actually applying for.
+ * The card's call to action. Both reveal the form in place, but the wording has
+ * to match what they are actually applying for.
  */
 export const SUBMISSION_CTA_LABEL: Record<SubmissionType, string> = {
   openday: "Submit your application",
@@ -79,8 +79,9 @@ export const SUBMISSION_CTA_NOTE: Record<SubmissionType, string> = {
 
 /**
  * Shown in place of the button when the announcement has no campaign linked, or
- * its campaign is closed. A dead link to `/register/$campaignId` would land the
- * student on "This registration has closed", so the card says so up front.
+ * its campaign is closed. The form could be opened, but RLS only accepts the
+ * insert while the campaign is open, so the card says so up front instead of
+ * letting the student fill everything in only to fail on submit.
  */
 export const SUBMISSION_CTA_CLOSED_LABEL = "Registration opening soon";
 export const SUBMISSION_CTA_CLOSED_NOTE =

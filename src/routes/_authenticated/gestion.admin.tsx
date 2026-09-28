@@ -27,6 +27,7 @@ import {
   Award,
   Ban,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ClipboardList,
   Download,
@@ -108,9 +109,16 @@ import {
   getMemberDocumentUrl,
   type AdminTeamMember,
   type MemberDocumentKey,
+  type AdminPost,
+  type AdminPostCampaign,
 } from "@/lib/admin-api";
 import { MAX_LEADER_DESCRIPTION } from "@/lib/leaders";
-import { listRegistrationCampaigns } from "@/lib/admin-registrations-api";
+import {
+  listRegistrationCampaigns,
+  type AdminCampaign,
+  type AdminRegistration,
+} from "@/lib/admin-registrations-api";
+import { CampaignSubmissions, CustomQuestionsEditor } from "@/components/admin-submissions";
 import {
   ANNOUNCEMENT_KIND,
   CAMPAIGN_KIND_FOR_SUBMISSION,
@@ -121,7 +129,6 @@ import {
   type SubmissionType,
 } from "@/lib/announcements";
 import { isValidLinkedinUrl, TEAM_CATEGORIES, teamCategoryLabel } from "@/lib/team";
-import { AdminRegistrations } from "@/components/admin-registrations";
 import { SubmissionAnnouncementCard } from "@/components/submission-announcement-card";
 import {
   ADMIN_SECTIONS,
@@ -228,7 +235,6 @@ const navItems = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "members", label: "Members", icon: Users },
   { key: "events", label: "Submissions", icon: CalendarDays },
-  { key: "registrations", label: "Registrations", icon: ClipboardList },
   { key: "leaders", label: "Leaders", icon: Award },
   { key: "team", label: "Team", icon: Users2 },
   { key: "admins", label: "Admins", icon: Shield },
@@ -624,6 +630,12 @@ type Post = {
   is_pinned: boolean;
   published: boolean;
   created_at: string;
+  /**
+   * The application settings that used to live in their own Registrations tab.
+   * They are saved together with the announcement, because the card *is* the
+   * application — see `AdminPostCampaign`.
+   */
+  campaign: AdminPostCampaign;
 };
 
 const blankPost: Post = {
@@ -639,6 +651,7 @@ const blankPost: Post = {
   is_pinned: false,
   published: true,
   created_at: "",
+  campaign: { is_open: true, custom_questions: [] },
 };
 
 const blankLeader: AdminLeader = {
@@ -691,6 +704,8 @@ function AdminPage() {
   const [manageId, setManageId] = useState<string | null>(null);
   const [removeConfirm, setRemoveConfirm] = useState<Member | null>(null);
   const [postDraft, setPostDraft] = useState<Post | null>(null);
+  /** Which announcement's submissions inbox is expanded, if any. */
+  const [inboxPostId, setInboxPostId] = useState<string | null>(null);
   const [tab, setTab] = useState<
     "dashboard" | "members" | "events" | "email" | "leaders" | "team" | "registrations" | "admins"
   >("dashboard");
@@ -732,26 +747,50 @@ function AdminPage() {
     session?.isOwner === true || (session?.sections.includes(section) ?? false);
   const isOwner = session?.isOwner ?? false;
 
+  // Submissions absorbed the standalone Registrations tab, so either stored
+  // permission key opens it. Keeping both avoids locking out admins who were
+  // granted "registrations" before the merge.
+  const canManageSubmissions = (): boolean => canAccess("events") || canAccess("registrations");
+
   const { data: members = [], isLoading } = useQuery({
     queryKey: ["members"],
     enabled: isAdmin === true && canAccess("members"),
     queryFn: () => listMembers(),
   });
 
-  // Campaigns power the announcement's Submit button. Shares the
-  // ["admin-campaigns"] cache key with the Registrations tab, so opening the
-  // announcement form after editing a campaign shows the new state for free.
+  // Campaigns are no longer edited in their own tab, but the announcement form
+  // still needs them: to hydrate a draft's application settings, and to offer
+  // attaching an existing registration to an announcement that has none (which
+  // is how the pre-merge data looks) so its submissions are not orphaned.
   const { data: campaigns = [] } = useQuery({
     queryKey: ["admin-campaigns"],
-    enabled: isAdmin === true && canAccess("events"),
+    enabled: isAdmin === true && canManageSubmissions(),
     queryFn: () => listRegistrationCampaigns(),
   });
+
+  const campaignById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
 
   /** Campaigns whose kind matches what the draft is announcing. */
   const matchingCampaigns = campaigns.filter(
     (campaign) =>
       campaign.kind === CAMPAIGN_KIND_FOR_SUBMISSION[postDraft?.submission_type ?? "openday"],
   );
+
+  /**
+   * Open the announcement form, hydrating the application settings from the
+   * campaign it already owns. A post with no campaign yet starts open and with
+   * no questions — saving will create the form for it.
+   */
+  function startEditingPost(post: AdminPost) {
+    const existing = post.campaign_id ? campaignById.get(post.campaign_id) : undefined;
+    setPostDraft({
+      ...post,
+      campaign: {
+        is_open: existing?.is_open ?? true,
+        custom_questions: existing?.custom_questions ?? [],
+      },
+    });
+  }
 
   function patchMembersCache(update: (prev: Member[]) => Member[]) {
     queryClient.setQueryData<Member[]>(["members"], (prev) => (prev ? update(prev) : prev));
@@ -1550,7 +1589,7 @@ function AdminPage() {
                           />
                         </DashSection>
                       )}
-                      {canAccess("registrations") && (
+                      {canManageSubmissions() && (
                         <DashSection delay={0} className="md:col-span-3 lg:col-span-3">
                           <KpiCard
                             label="Pending registrations"
@@ -1566,11 +1605,11 @@ function AdminPage() {
                                 suffix="% vs last month"
                               />
                             }
-                            onClick={() => setTab("registrations")}
+                            onClick={() => setTab("events")}
                           />
                         </DashSection>
                       )}
-                      {canAccess("registrations") && (
+                      {canManageSubmissions() && (
                         <DashSection delay={0} className="md:col-span-3 lg:col-span-3">
                           <KpiCard
                             label="Open campaigns"
@@ -1791,7 +1830,7 @@ function AdminPage() {
                       )}
 
                       {/* ── 3 · Registrations analytics — stage funnel ── */}
-                      {canAccess("registrations") && (
+                      {canManageSubmissions() && (
                         <DashSection delay={0.26} className="md:col-span-6 lg:col-span-8">
                           <section className="admin-glass rounded-3xl p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#2e6bff]/30 hover:shadow-[0_18px_40px_-18px_rgba(46,107,255,0.45)] md:p-6">
                             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2474,13 +2513,11 @@ function AdminPage() {
                     <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
                       Home page content
                     </p>
-                    <h2 className="font-display text-2xl font-bold text-white">
-                      Submission announcements
-                    </h2>
-                    <p className="mt-1 max-w-xl text-sm font-semibold text-[#94a3c8]">
-                      Every card here announces a submission students can apply to — an open day or
-                      a club event. The card's button always sends them to the open-campaign list,
-                      so the submission itself lives in the Registrations tab.
+                    <h2 className="font-display text-2xl font-bold text-white">Submissions</h2>
+                    <p className="mt-1 max-w-2xl text-sm font-semibold text-[#94a3c8]">
+                      Everything about a submission lives here: the announcement, the form students
+                      fill in from its card, and the submissions that come back — review them and
+                      check students in below.
                     </p>
                   </div>
                   <button
@@ -2488,7 +2525,7 @@ function AdminPage() {
                     className="clay-sm flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-5 py-2.5 text-sm font-bold text-white shadow-[0_10px_30px_-14px_rgba(46,107,255,0.55)]"
                   >
                     <FilePlus2 className="size-4" />
-                    New announcement
+                    New submission
                   </button>
                 </div>
 
@@ -2545,15 +2582,11 @@ function AdminPage() {
                                 setPostDraft({
                                   ...postDraft,
                                   submission_type: type,
-                                  // Switching type can invalidate the linked campaign: a
-                                  // membership drive on an "event" announcement would send
-                                  // the student to the wrong form, so drop the link.
-                                  campaign_id:
-                                    postDraft.campaign_id &&
-                                    campaigns.find((c) => c.id === postDraft.campaign_id)?.kind ===
-                                      CAMPAIGN_KIND_FOR_SUBMISSION[type]
-                                      ? postDraft.campaign_id
-                                      : null,
+                                  // The form a student gets is derived from this on
+                                  // save, so switching type is enough — the
+                                  // registration (and the submissions already in
+                                  // it) stays attached and simply offers the
+                                  // other form from now on.
                                 })
                               }
                               className={`rounded-2xl border px-4 py-3 text-left transition-colors ${
@@ -2587,45 +2620,109 @@ function AdminPage() {
                         </p>
                       </div>
 
-                      <div className="sm:col-span-2">
-                        <label
-                          className="text-xs font-extrabold text-muted-foreground uppercase"
-                          htmlFor="post-campaign"
-                        >
-                          Registration this announces
-                        </label>
-                        <select
-                          id="post-campaign"
-                          className={fieldClass}
-                          value={postDraft.campaign_id ?? ""}
-                          onChange={(e) =>
-                            setPostDraft({ ...postDraft, campaign_id: e.target.value || null })
-                          }
-                        >
-                          <option value="">
-                            {matchingCampaigns.length === 0
-                              ? `No ${
-                                  postDraft.submission_type === "openday" ? "membership" : "event"
-                                } campaign yet — create one in Registrations`
-                              : "Not linked yet — the card will show “Registration opening soon”"}
-                          </option>
-                          {matchingCampaigns.map((campaign) => (
-                            <option key={campaign.id} value={campaign.id}>
-                              {campaign.title}
-                              {campaign.is_open ? "" : " (closed)"}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="mt-1.5 text-[11px] font-semibold text-[#94a3c8]">
-                          The card's submit button opens this campaign's registration page — only{" "}
-                          {postDraft.submission_type === "openday" ? "membership" : "event"}{" "}
-                          campaigns are listed so the announcement and the form a student fills in
-                          can never disagree.{" "}
-                          {postDraft.campaign_id &&
-                          !campaigns.find((c) => c.id === postDraft.campaign_id)?.is_open
-                            ? "This campaign is closed, so the published card will show “Registration opening soon” until you open it."
-                            : ""}
+                      {/* ── The application itself ────────────────────────── */}
+                      <div className="sm:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-5">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <h3 className="font-display text-base font-bold text-white">
+                              Application
+                            </h3>
+                            <p className="text-xs font-semibold text-[#94a3c8]">
+                              Students apply from this announcement's card — there is no separate
+                              registration page.{" "}
+                              {postDraft.submission_type === "openday"
+                                ? "They get the membership wizard: profile, two documents, then these questions."
+                                : "They get a single-step form: contact details, then these questions. No documents."}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPostDraft({
+                                ...postDraft,
+                                campaign: {
+                                  ...postDraft.campaign,
+                                  is_open: !postDraft.campaign.is_open,
+                                },
+                              })
+                            }
+                            className={`flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-extrabold uppercase transition-colors ${
+                              postDraft.campaign.is_open
+                                ? "border-[#34d399]/40 bg-[#34d399]/10 text-[#6ee7b7]"
+                                : "border-white/10 bg-white/5 text-[#94a3c8]"
+                            }`}
+                          >
+                            <span
+                              className={`size-2 rounded-full ${
+                                postDraft.campaign.is_open ? "bg-[#34d399]" : "bg-[#94a3c8]"
+                              }`}
+                            />
+                            {postDraft.campaign.is_open ? "Accepting" : "Closed"}
+                          </button>
+                        </div>
+                        <p className="mt-2 text-[11px] font-semibold text-[#94a3c8]">
+                          {postDraft.campaign.is_open
+                            ? "The card shows the application form. Closing it keeps the announcement published but replaces the form with “Registration opening soon”."
+                            : "The announcement stays on the home page, but the card will show “Registration opening soon” instead of a form."}
                         </p>
+
+                        {/* One-time escape hatch for announcements created before this
+                            merge: attaching an existing registration keeps its
+                            submissions instead of orphaning them on a new form. */}
+                        {!postDraft.campaign_id && matchingCampaigns.length > 0 && (
+                          <div className="mt-4 rounded-2xl border border-[#f59e0b]/30 bg-[#f59e0b]/10 p-4">
+                            <label
+                              className="text-xs font-extrabold text-[#fcd34d] uppercase"
+                              htmlFor="post-attach-campaign"
+                            >
+                              Attach an existing registration
+                            </label>
+                            <select
+                              id="post-attach-campaign"
+                              className={fieldClass}
+                              value=""
+                              onChange={(e) => {
+                                const target = campaignById.get(e.target.value);
+                                if (!target) return;
+                                setPostDraft({
+                                  ...postDraft,
+                                  campaign_id: target.id,
+                                  campaign: {
+                                    is_open: target.is_open,
+                                    custom_questions: target.custom_questions ?? [],
+                                  },
+                                });
+                              }}
+                            >
+                              <option value="">
+                                Choose — keeps the submissions already in that registration
+                              </option>
+                              {matchingCampaigns.map((campaign) => (
+                                <option key={campaign.id} value={campaign.id}>
+                                  {campaign.title} — {campaign.submission_count} submission
+                                  {campaign.submission_count === 1 ? "" : "s"}
+                                  {campaign.is_open ? "" : " (closed)"}
+                                </option>
+                              ))}
+                            </select>
+                            <p className="mt-1.5 text-[11px] font-semibold text-[#fcd34d]">
+                              This announcement has no form of its own. Attaching an existing one
+                              keeps the submissions students already sent; saving without attaching
+                              creates a fresh, empty form.
+                            </p>
+                          </div>
+                        )}
+
+                        {postDraft.campaign_id && (
+                          <p className="mt-3 text-[11px] font-semibold text-[#94a3c8]">
+                            {(() => {
+                              const target = campaignById.get(postDraft.campaign_id ?? "");
+                              return target
+                                ? `Linked to “${target.title}” · ${target.submission_count} submission${target.submission_count === 1 ? "" : "s"} so far`
+                                : "Linked to a registration that is no longer in the list — saving will create a new one.";
+                            })()}
+                          </p>
+                        )}
                       </div>
 
                       <div>
@@ -2712,6 +2809,18 @@ function AdminPage() {
                       </div>
                     </div>
 
+                    <div className="mt-5">
+                      <CustomQuestionsEditor
+                        questions={postDraft.campaign.custom_questions}
+                        onChange={(custom_questions) =>
+                          setPostDraft({
+                            ...postDraft,
+                            campaign: { ...postDraft.campaign, custom_questions },
+                          })
+                        }
+                      />
+                    </div>
+
                     {/* Live preview — the exact card the public feed renders. */}
                     <div className="mt-6 border-t border-white/10 pt-5">
                       <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
@@ -2781,7 +2890,7 @@ function AdminPage() {
                       </p>
                       <div className="mt-4 flex gap-2">
                         <button
-                          onClick={() => setPostDraft(post)}
+                          onClick={() => startEditingPost(post)}
                           className="clay-sm inline-flex items-center gap-1 rounded-lg bg-[#34d399]/20 px-3 py-1.5 text-xs font-bold text-[#6ee7b7]"
                         >
                           <Pencil className="size-3.5" /> Edit
@@ -2795,6 +2904,46 @@ function AdminPage() {
                           <Trash2 className="size-3.5" /> Delete
                         </button>
                       </div>
+
+                      {(() => {
+                        const campaign = post.campaign_id
+                          ? campaignById.get(post.campaign_id)
+                          : undefined;
+                        if (!campaign) {
+                          return (
+                            <p className="mt-3 border-t border-white/10 pt-3 text-xs font-semibold text-[#fcd34d]">
+                              No application form yet — save this announcement to create one, or
+                              attach an existing registration above.
+                            </p>
+                          );
+                        }
+                        const open = inboxPostId === post.id;
+                        return (
+                          <div className="mt-3 border-t border-white/10 pt-3">
+                            <button
+                              onClick={() => setInboxPostId(open ? null : post.id)}
+                              aria-expanded={open}
+                              className="flex w-full items-center justify-between gap-3 text-left"
+                            >
+                              <span className="text-xs font-extrabold text-[#6fa0ff] uppercase">
+                                Submissions · {campaign.submission_count}
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#94a3c8]">
+                                {open ? "Hide" : campaign.is_open ? "Review" : "Review (closed)"}
+                                <ChevronDown
+                                  className={`size-4 transition-transform ${open ? "rotate-180" : ""}`}
+                                />
+                              </span>
+                            </button>
+                            {campaign.is_open && (
+                              <p className="mt-1 text-[11px] font-semibold text-[#6ee7b7]">
+                                Accepting applications
+                              </p>
+                            )}
+                            {open && <CampaignSubmissions campaign={campaign} />}
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>
@@ -3377,15 +3526,6 @@ function AdminPage() {
               ) : (
                 <NoAccess label="the admins page" />
               ))}
-
-            {tab === "registrations" &&
-              (canAccess("registrations") ? (
-                <div className="admin-glass mt-8 rounded-3xl p-6 md:p-8">
-                  <AdminRegistrations />
-                </div>
-              ) : (
-                <NoAccess label="registrations" />
-              ))}
           </div>
         </main>
 
@@ -3607,32 +3747,42 @@ function AdminPage() {
                   server-side.
                 </p>
                 <div className="mt-3 grid gap-2">
-                  {ADMIN_SECTIONS.map((section) => {
-                    const allowed = !managedAdmin.restricted.includes(section);
-                    return (
-                      <div
-                        key={section}
-                        className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
-                      >
-                        <p className="text-sm font-bold text-white">{adminSectionLabel(section)}</p>
-                        <Switch
-                          checked={allowed}
-                          disabled={toggleSection.isPending}
-                          aria-label={`${adminSectionLabel(section)} access for ${
-                            managedAdmin.display_name || managedAdmin.email
-                          }`}
-                          onCheckedChange={() =>
-                            toggleSection.mutate({
-                              adminId: managedAdmin.user_id,
-                              section,
-                              allowed: !allowed,
-                            })
-                          }
-                          className="data-[state=checked]:bg-[#2e6bff]"
-                        />
-                      </div>
-                    );
-                  })}
+                  {ADMIN_SECTIONS.filter((section) => section !== "registrations").map(
+                    (section) => {
+                      // "registrations" is the legacy twin of "events" and is
+                      // written in lockstep, so one switch covers both.
+                      const allowed =
+                        section === "events"
+                          ? !managedAdmin.restricted.includes("events") &&
+                            !managedAdmin.restricted.includes("registrations")
+                          : !managedAdmin.restricted.includes(section);
+                      return (
+                        <div
+                          key={section}
+                          className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
+                        >
+                          <p className="text-sm font-bold text-white">
+                            {adminSectionLabel(section)}
+                          </p>
+                          <Switch
+                            checked={allowed}
+                            disabled={toggleSection.isPending}
+                            aria-label={`${adminSectionLabel(section)} access for ${
+                              managedAdmin.display_name || managedAdmin.email
+                            }`}
+                            onCheckedChange={() =>
+                              toggleSection.mutate({
+                                adminId: managedAdmin.user_id,
+                                section,
+                                allowed: !allowed,
+                              })
+                            }
+                            className="data-[state=checked]:bg-[#2e6bff]"
+                          />
+                        </div>
+                      );
+                    },
+                  )}
                 </div>
 
                 <h3 className="mt-8 text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
