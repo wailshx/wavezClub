@@ -22,7 +22,7 @@ export type AdminSection = (typeof ADMIN_SECTIONS)[number];
 const SECTION_LABELS: Record<AdminSection, string> = {
   dashboard: "Dashboard",
   members: "Members",
-  events: "Events",
+  events: "Submissions",
   registrations: "Registrations",
   team: "Team",
   leaders: "Leaders",

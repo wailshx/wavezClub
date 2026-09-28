@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
+import { ANNOUNCEMENT_KIND, isSubmissionType, type SubmissionType } from "@/lib/announcements";
 import { MAX_LEADER_DESCRIPTION } from "@/lib/leaders";
 import { isValidLinkedinUrl, TEAM_CATEGORIES, type TeamCategory } from "@/lib/team";
 import { requireSection } from "@/lib/admin-admins-api";
@@ -30,13 +31,21 @@ export type AdminMember = {
 
 export type MemberDocumentKey = "school_certificate" | "identity_card";
 
+/**
+ * An announcement in the admin console. `kind` is fixed to `registration` — the
+ * event/news types are retired (migration 0016) and every announcement now
+ * exists to announce an open submission.
+ */
 export type AdminPost = {
   id: string;
-  kind: "event" | "news";
+  kind: typeof ANNOUNCEMENT_KIND;
   title: string;
+  subtitle: string;
   body: string;
   location: string | null;
   event_date: string | null;
+  submission_type: SubmissionType;
+  is_pinned: boolean;
   published: boolean;
   created_at: string;
 };
@@ -254,25 +263,45 @@ export const listPosts = createServerFn({ method: "GET" })
     const { data, error } = await supabase
       .from("posts")
       .select("*")
+      .order("is_pinned", { ascending: false })
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return data ?? [];
+    return (data ?? []) as unknown as AdminPost[];
   });
+
+const MAX_TITLE = 140;
+const MAX_SUBTITLE = 180;
+const MAX_BODY = 4000;
+const MAX_LOCATION = 160;
 
 export const savePost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((post: AdminPost) => post)
   .handler(async ({ context, data: post }) => {
     const { supabase } = await requireSection(context, "events");
+
+    const title = post.title.trim();
+    if (!title) throw new Error("Title is required");
+    if (!isSubmissionType(post.submission_type)) {
+      throw new Error("Choose whether this is an open day or an event submission");
+    }
+    const parsedDate = post.event_date ? new Date(post.event_date) : null;
+    if (parsedDate && Number.isNaN(parsedDate.getTime())) {
+      throw new Error("Invalid date & time");
+    }
+
     const payload = {
-      kind: post.kind,
-      title: post.title.trim(),
-      body: post.body.trim(),
-      location: post.location?.trim() ? post.location.trim() : null,
-      event_date: post.event_date ? new Date(post.event_date).toISOString() : null,
-      published: post.published,
+      kind: ANNOUNCEMENT_KIND,
+      title: title.slice(0, MAX_TITLE),
+      subtitle: post.subtitle.trim().slice(0, MAX_SUBTITLE),
+      body: post.body.trim().slice(0, MAX_BODY),
+      location: post.location?.trim() ? post.location.trim().slice(0, MAX_LOCATION) : null,
+      event_date: parsedDate ? parsedDate.toISOString() : null,
+      submission_type: post.submission_type,
+      is_pinned: post.is_pinned === true,
+      published: post.published === true,
     };
-    if (!payload.title) throw new Error("Title is required");
+
     const { error } = post.id
       ? await supabase.from("posts").update(payload).eq("id", post.id)
       : await supabase.from("posts").insert(payload);

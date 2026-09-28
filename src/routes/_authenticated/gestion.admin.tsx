@@ -40,6 +40,7 @@ import {
   Menu,
   Paperclip,
   Pencil,
+  Pin,
   Save,
   Search,
   Send,
@@ -109,8 +110,17 @@ import {
   type MemberDocumentKey,
 } from "@/lib/admin-api";
 import { MAX_LEADER_DESCRIPTION } from "@/lib/leaders";
+import {
+  ANNOUNCEMENT_KIND,
+  SUBMISSION_TYPES,
+  SUBMISSION_TYPE_HINT,
+  SUBMISSION_TYPE_KIND_LABEL,
+  SUBMISSION_TYPE_LABEL,
+  type SubmissionType,
+} from "@/lib/announcements";
 import { isValidLinkedinUrl, TEAM_CATEGORIES, teamCategoryLabel } from "@/lib/team";
 import { AdminRegistrations } from "@/components/admin-registrations";
+import { SubmissionAnnouncementCard } from "@/components/submission-announcement-card";
 import {
   ADMIN_SECTIONS,
   adminSectionLabel,
@@ -215,7 +225,7 @@ function avatarFallback(name: string | null, email: string | null) {
 const navItems = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "members", label: "Members", icon: Users },
-  { key: "events", label: "Events", icon: CalendarDays },
+  { key: "events", label: "Submissions", icon: CalendarDays },
   { key: "registrations", label: "Registrations", icon: ClipboardList },
   { key: "leaders", label: "Leaders", icon: Award },
   { key: "team", label: "Team", icon: Users2 },
@@ -600,22 +610,28 @@ function campaignChartData(campaigns: DashboardStats["registrations"]["campaigns
 
 type Post = {
   id: string;
-  kind: "event" | "news";
+  kind: typeof ANNOUNCEMENT_KIND;
   title: string;
+  subtitle: string;
   body: string;
   location: string | null;
   event_date: string | null;
+  submission_type: SubmissionType;
+  is_pinned: boolean;
   published: boolean;
   created_at: string;
 };
 
 const blankPost: Post = {
   id: "",
-  kind: "event",
+  kind: ANNOUNCEMENT_KIND,
   title: "",
+  subtitle: "",
   body: "",
   location: "",
   event_date: null,
+  submission_type: "openday",
+  is_pinned: false,
   published: true,
   created_at: "",
 };
@@ -1829,20 +1845,20 @@ function AdminPage() {
                         </DashSection>
                       )}
 
-                      {/* ── 4 · Events analytics — gradient area ── */}
+                      {/* ── 4 · Submissions analytics — gradient area ── */}
                       {canAccess("events") && (
                         <DashSection delay={0.32} className="md:col-span-6 lg:col-span-7">
                           <section className="admin-glass rounded-3xl p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#2e6bff]/30 hover:shadow-[0_18px_40px_-18px_rgba(46,107,255,0.45)] md:p-6">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                               <h2 className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
-                                Events analytics
+                                Submissions analytics
                               </h2>
                               <div className="flex flex-wrap gap-2">
                                 <span className="rounded-full border border-[#2e6bff]/40 bg-[#2e6bff]/15 px-3 py-1 text-[11px] font-extrabold text-[#6fa0ff] uppercase">
-                                  {stats.events.published} published
+                                  {stats.events.published} live
                                 </span>
                                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-extrabold text-[#94a3c8] uppercase">
-                                  {stats.events.drafts} drafts
+                                  {stats.events.drafts} hidden
                                 </span>
                               </div>
                             </div>
@@ -1850,7 +1866,7 @@ function AdminPage() {
                             {stats.events.by_month.every((e) => e.count === 0) ? (
                               <div className="mt-4">
                                 <EmptyHint>
-                                  No events yet — create one from the Events tab.
+                                  No announcements yet — publish one from the Submissions tab.
                                 </EmptyHint>
                               </div>
                             ) : (
@@ -1894,7 +1910,7 @@ function AdminPage() {
                                       <Area
                                         type="monotone"
                                         dataKey="count"
-                                        name="Events"
+                                        name="Submissions"
                                         stroke="#38bdf8"
                                         strokeWidth={2}
                                         fill="url(#eventFreqFill)"
@@ -1908,7 +1924,7 @@ function AdminPage() {
                                   </ResponsiveContainer>
                                 </div>
                                 <p className="mx-2 mt-1 text-[11px] font-semibold text-[#94a3c8]">
-                                  Events by month — last 6 months
+                                  Submission announcements by month — last 6 months
                                 </p>
                               </div>
                             )}
@@ -2439,112 +2455,197 @@ function AdminPage() {
                       Home page content
                     </p>
                     <h2 className="font-display text-2xl font-bold text-white">
-                      Events &amp; news
+                      Submission announcements
                     </h2>
+                    <p className="mt-1 max-w-xl text-sm font-semibold text-[#94a3c8]">
+                      Every card here announces a submission students can apply to — an open day or
+                      a club event. The card's button always sends them to the open-campaign list,
+                      so the submission itself lives in the Registrations tab.
+                    </p>
                   </div>
                   <button
                     onClick={() => setPostDraft({ ...blankPost })}
                     className="clay-sm flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-5 py-2.5 text-sm font-bold text-white shadow-[0_10px_30px_-14px_rgba(46,107,255,0.55)]"
                   >
                     <FilePlus2 className="size-4" />
-                    New post
+                    New announcement
                   </button>
                 </div>
 
                 {postDraft && (
                   <form
-                    className="mt-6 grid gap-4 rounded-2xl border border-white/10 bg-black/20 p-5 sm:grid-cols-2"
+                    className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-5"
                     onSubmit={(e) => {
                       e.preventDefault();
                       savePost.mutate(postDraft);
                     }}
                   >
-                    <div className="sm:col-span-2">
-                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                        Title
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                          Title
+                        </label>
+                        <input
+                          required
+                          maxLength={140}
+                          className={fieldClass}
+                          placeholder="Wavez Open Day 2026"
+                          value={postDraft.title}
+                          onChange={(e) => setPostDraft({ ...postDraft, title: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                          Subtitle
+                        </label>
+                        <input
+                          maxLength={180}
+                          className={fieldClass}
+                          placeholder="One line: who should apply and what they get."
+                          value={postDraft.subtitle}
+                          onChange={(e) => setPostDraft({ ...postDraft, subtitle: e.target.value })}
+                        />
+                        <p className="mt-1.5 text-[11px] font-semibold text-[#94a3c8]">
+                          Sits under the title in a smaller size — the promise, not the detail.
+                        </p>
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                          What are they submitting to
+                        </label>
+                        <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+                          {SUBMISSION_TYPES.map((type) => (
+                            <button
+                              key={type}
+                              type="button"
+                              aria-pressed={postDraft.submission_type === type}
+                              onClick={() => setPostDraft({ ...postDraft, submission_type: type })}
+                              className={`rounded-2xl border px-4 py-3 text-left transition-colors ${
+                                postDraft.submission_type === type
+                                  ? type === "openday"
+                                    ? "border-[#2e6bff]/50 bg-[#2e6bff]/15"
+                                    : "border-[#34d399]/50 bg-[#34d399]/10"
+                                  : "border-white/10 bg-black/20 hover:bg-white/5"
+                              }`}
+                            >
+                              <p
+                                className={`text-sm font-bold ${
+                                  postDraft.submission_type !== type
+                                    ? "text-white"
+                                    : type === "openday"
+                                      ? "text-[#6fa0ff]"
+                                      : "text-[#6ee7b7]"
+                                }`}
+                              >
+                                {SUBMISSION_TYPE_KIND_LABEL[type]}
+                              </p>
+                              <p className="mt-0.5 text-xs font-semibold text-[#94a3c8]">
+                                {SUBMISSION_TYPE_HINT[type]}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                        <p className="mt-1.5 text-[11px] font-semibold text-[#94a3c8]">
+                          The card leads with this label, so students know what they are applying to
+                          before they read the title.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                          Date &amp; time
+                        </label>
+                        <input
+                          type="datetime-local"
+                          className={fieldClass}
+                          value={postDraft.event_date ? postDraft.event_date.slice(0, 16) : ""}
+                          onChange={(e) =>
+                            setPostDraft({ ...postDraft, event_date: e.target.value || null })
+                          }
+                        />
+                        <p className="mt-1.5 text-[11px] font-semibold text-[#94a3c8]">
+                          Adds a "Today / Tomorrow / In N days" chip inside the next 7 days.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                          Place
+                        </label>
+                        <input
+                          maxLength={160}
+                          className={fieldClass}
+                          placeholder="Amphi 3, Faculty of Electrical Engineering"
+                          value={postDraft.location ?? ""}
+                          onChange={(e) => setPostDraft({ ...postDraft, location: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                          Details
+                        </label>
+                        <textarea
+                          rows={4}
+                          maxLength={4000}
+                          className={fieldClass}
+                          placeholder="What happens, who can apply, what they should bring…"
+                          value={postDraft.body}
+                          onChange={(e) => setPostDraft({ ...postDraft, body: e.target.value })}
+                        />
+                      </div>
+
+                      <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2">
+                        <input
+                          type="checkbox"
+                          checked={postDraft.is_pinned}
+                          onChange={(e) =>
+                            setPostDraft({ ...postDraft, is_pinned: e.target.checked })
+                          }
+                        />
+                        Pin to the top of the feed
                       </label>
-                      <input
-                        required
-                        className={fieldClass}
-                        value={postDraft.title}
-                        onChange={(e) => setPostDraft({ ...postDraft, title: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                        Type
+
+                      <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2">
+                        <input
+                          type="checkbox"
+                          checked={postDraft.published}
+                          onChange={(e) =>
+                            setPostDraft({ ...postDraft, published: e.target.checked })
+                          }
+                        />
+                        Visible on the home page
                       </label>
-                      <select
-                        className={fieldClass}
-                        value={postDraft.kind}
-                        onChange={(e) =>
-                          setPostDraft({ ...postDraft, kind: e.target.value as Post["kind"] })
-                        }
-                      >
-                        <option value="event">event</option>
-                        <option value="news">news</option>
-                      </select>
+
+                      <div className="flex gap-3 sm:col-span-2">
+                        <button
+                          type="submit"
+                          disabled={savePost.isPending}
+                          className="clay-md rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(46,107,255,0.7)] disabled:opacity-70"
+                        >
+                          Save announcement
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPostDraft(null)}
+                          className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                        Date &amp; time
-                      </label>
-                      <input
-                        type="datetime-local"
-                        className={fieldClass}
-                        value={postDraft.event_date ? postDraft.event_date.slice(0, 16) : ""}
-                        onChange={(e) =>
-                          setPostDraft({ ...postDraft, event_date: e.target.value || null })
-                        }
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                        Place
-                      </label>
-                      <input
-                        className={fieldClass}
-                        placeholder="Amphi 3, Faculty of Electrical Engineering"
-                        value={postDraft.location ?? ""}
-                        onChange={(e) => setPostDraft({ ...postDraft, location: e.target.value })}
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
-                        Details
-                      </label>
-                      <textarea
-                        rows={4}
-                        className={fieldClass}
-                        value={postDraft.body}
-                        onChange={(e) => setPostDraft({ ...postDraft, body: e.target.value })}
-                      />
-                    </div>
-                    <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2">
-                      <input
-                        type="checkbox"
-                        checked={postDraft.published}
-                        onChange={(e) =>
-                          setPostDraft({ ...postDraft, published: e.target.checked })
-                        }
-                      />
-                      Visible on the home page
-                    </label>
-                    <div className="flex gap-3 sm:col-span-2">
-                      <button
-                        type="submit"
-                        disabled={savePost.isPending}
-                        className="clay-md rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(46,107,255,0.7)] disabled:opacity-70"
-                      >
-                        Save post
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPostDraft(null)}
-                        className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
-                      >
-                        Cancel
-                      </button>
+
+                    {/* Live preview — the exact card the public feed renders. */}
+                    <div className="mt-6 border-t border-white/10 pt-5">
+                      <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                        Live card preview
+                      </p>
+                      <p className="mt-1 mb-4 text-[11px] font-semibold text-[#94a3c8]">
+                        Rendered with this console's colours — the public card uses the light theme.
+                      </p>
+                      <SubmissionAnnouncementCard announcement={postDraft} index={0} preview />
                     </div>
                   </form>
                 )}
@@ -2552,7 +2653,7 @@ function AdminPage() {
                 <div className="mt-6 grid gap-4 md:grid-cols-2">
                   {posts.length === 0 && (
                     <p className="font-semibold text-[#94a3c8]">
-                      No events or news yet — create your first post.
+                      No announcements yet — publish the first open-day or event submission.
                     </p>
                   )}
                   {posts.map((post) => (
@@ -2561,9 +2662,25 @@ function AdminPage() {
                       className="rounded-2xl border border-white/10 bg-black/20 p-5 transition-colors hover:bg-black/30"
                     >
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-[#2e6bff]/20 px-3 py-1 text-[11px] font-extrabold text-[#6fa0ff] uppercase">
-                          {post.kind}
+                        <span
+                          className={`rounded-full px-3 py-1 text-[11px] font-extrabold uppercase ${
+                            post.submission_type === "openday"
+                              ? "bg-[#2e6bff]/20 text-[#6fa0ff]"
+                              : "bg-[#34d399]/20 text-[#6ee7b7]"
+                          }`}
+                        >
+                          {SUBMISSION_TYPE_LABEL[post.submission_type]}
                         </span>
+                        {post.is_pinned && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[#818cf8]/20 px-3 py-1 text-[11px] font-extrabold text-[#c7d2fe] uppercase">
+                            <Pin
+                              aria-hidden="true"
+                              className="size-3 -rotate-[20deg]"
+                              strokeWidth={2.5}
+                            />
+                            pinned
+                          </span>
+                        )}
                         {!post.published && (
                           <span className="rounded-full bg-[#f59e0b]/20 px-3 py-1 text-[11px] font-extrabold text-[#fcd34d] uppercase">
                             hidden
@@ -2576,8 +2693,13 @@ function AdminPage() {
                         )}
                       </div>
                       <p className="mt-3 font-display text-lg font-bold text-white">{post.title}</p>
+                      {post.subtitle && (
+                        <p className="mt-1 line-clamp-2 text-sm font-semibold text-[#6fa0ff]">
+                          {post.subtitle}
+                        </p>
+                      )}
                       {post.location && (
-                        <p className="text-xs font-bold text-[#6fa0ff]">📍 {post.location}</p>
+                        <p className="mt-1 text-xs font-bold text-[#94a3c8]">📍 {post.location}</p>
                       )}
                       <p className="mt-2 line-clamp-3 text-sm font-semibold text-[#94a3c8]">
                         {post.body}

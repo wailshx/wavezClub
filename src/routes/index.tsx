@@ -1,11 +1,17 @@
-import { ArrowRight, Pin } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { OpenCampaign } from "@/lib/registrations";
+import {
+  sortAnnouncements,
+  type SubmissionAnnouncement,
+  type SubmissionType,
+} from "@/lib/announcements";
 import { BoltDivider } from "@/components/circuit-board";
 import { ScrollReveal } from "@/components/scroll-reveal";
 import { PulseDot } from "@/components/pulse-dot";
+import { SubmissionAnnouncementCard } from "@/components/submission-announcement-card";
 import { LeadersCarousel } from "@/components/leaders-carousel";
 import { MentorsSection } from "@/components/mentors-section";
 import { SiteHeader } from "@/components/site-header";
@@ -37,60 +43,22 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type Post = {
+/** Coerce a raw `posts` row (typed as `text`) into the feed's domain shape. */
+function toAnnouncement(row: {
   id: string;
-  kind: "event" | "news";
   title: string;
+  subtitle: string;
   body: string;
   location: string | null;
   event_date: string | null;
+  submission_type: string;
+  is_pinned: boolean;
   created_at: string;
-};
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-/** True while the event date is within the next 7 days (and not in the past). */
-function isUpcomingSoon(value: string): boolean {
-  const time = new Date(value).getTime();
-  if (Number.isNaN(time)) return false;
-  const diff = time - Date.now();
-  return diff >= 0 && diff <= 7 * 24 * 60 * 60 * 1000;
-}
-
-/** Urgency label for a known upcoming event date: Today / Tomorrow / In X days. */
-function countdownLabel(value: string): string | null {
-  const time = new Date(value).getTime();
-  if (Number.isNaN(time)) return null;
-  const diff = time - Date.now();
-  if (diff < 0 || diff > 7 * 24 * 60 * 60 * 1000) return null;
-  const days = Math.ceil(diff / (24 * 60 * 60 * 1000));
-  if (days <= 0) return "Today";
-  if (days === 1) return "Tomorrow";
-  return `In ${days} days`;
-}
-
-/** Small readable urgency badge for featured events with a known date. */
-function EventCountdown({ eventDate }: { eventDate: string }) {
-  const label = countdownLabel(eventDate);
-  if (!label) return null;
-  const isToday = label === "Today";
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold tracking-wider uppercase ${
-        isToday ? "bg-brand text-white" : "bg-brand/15 text-brand"
-      }`}
-    >
-      {label}
-    </span>
-  );
+}): SubmissionAnnouncement {
+  return {
+    ...row,
+    submission_type: (row.submission_type === "event" ? "event" : "openday") as SubmissionType,
+  };
 }
 
 function Index() {
@@ -99,12 +67,17 @@ function Index() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("posts")
-        .select("id, kind, title, body, location, event_date, created_at")
+        .select(
+          "id, title, subtitle, body, location, event_date, submission_type, is_pinned, created_at",
+        )
         .eq("published", true)
+        .order("is_pinned", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(9);
       if (error) throw error;
-      return data as Post[];
+      return ((data ?? []) as unknown as Parameters<typeof toAnnouncement>[0][]).map(
+        toAnnouncement,
+      );
     },
   });
 
@@ -136,16 +109,8 @@ function Index() {
   const hasOpenCampaigns = campaigns.length > 0;
   const [featuredCampaign, ...restCampaigns] = campaigns;
 
-  // Announcement feed — the single most urgent upcoming event gets bumped to
-  // front; every post then gets the same pinned card.
-  const feed: Post[] = (() => {
-    const first =
-      posts.find(
-        (post) => post.kind === "event" && post.event_date && isUpcomingSoon(post.event_date),
-      ) ?? posts[0];
-    if (!first) return [];
-    return [first, ...posts.filter((post) => post.id !== first.id)];
-  })();
+  // Feed order: pinned announcements first, then newest.
+  const announcements = sortAnnouncements(posts);
 
   return (
     <div className="min-h-screen scroll-smooth bg-background">
@@ -311,7 +276,7 @@ function Index() {
         <BoltDivider />
       </ScrollReveal>
 
-      <section id="news" className="mx-auto max-w-6xl px-5 pb-20">
+      <section id="submissions" className="mx-auto max-w-6xl scroll-mt-24 px-5 pb-20">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <ScrollReveal>
@@ -319,88 +284,44 @@ function Index() {
                 Announcements
               </p>
               <h2 className="mt-2 font-display text-4xl leading-tight font-bold md:text-5xl">
-                What's Happening
+                Open for submission
               </h2>
             </ScrollReveal>
             <ScrollReveal delay={0.1}>
               <p className="mt-3 max-w-2xl font-semibold text-muted-foreground">
-                Club meetings, workshops and announcements.
+                Every announcement here is a live submission — an open day or a club event you can
+                apply to right now.
               </p>
             </ScrollReveal>
           </div>
         </div>
 
         {postsLoading ? (
-          <p className="mt-8 font-semibold text-muted-foreground">Loading updates…</p>
-        ) : feed.length === 0 ? (
+          <p className="mt-8 font-semibold text-muted-foreground">Loading announcements…</p>
+        ) : announcements.length === 0 ? (
           <div className="mt-10 max-w-2xl border-t border-foreground/10 pt-8">
-            <p className="font-display text-xl font-bold">Nothing posted yet</p>
+            <p className="font-display text-xl font-bold">No submission is open right now</p>
             <p className="mt-2 font-semibold text-muted-foreground">
-              Our next meetings and announcements will appear here.
+              We open a new submission before every open day and club event — check back soon, or
+              see every registration we are running.
             </p>
+            <a
+              href="#join"
+              className="mt-6 inline-flex items-center gap-2 rounded-2xl border-2 border-brand/25 bg-card/60 px-6 py-3 font-bold text-brand-deep transition-colors hover:border-brand/60 hover:bg-brand/5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+            >
+              Browse registrations
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </a>
           </div>
         ) : (
           <div className="mt-10 flex flex-col gap-8 md:gap-10">
-            {feed.map((post, index) => {
-              const isEvent = post.kind === "event";
-              const isUpcoming = post.event_date ? isUpcomingSoon(post.event_date) : false;
-              // An event with a live campaign is a registration, not a notice —
-              // the badge has to say so before anyone reads the title.
-              const isRegistration = isEvent && isUpcoming && hasOpenCampaigns;
-              const kindLabel = isRegistration ? "Registration open" : isEvent ? "Event" : "News";
-              const kindClass = isRegistration
-                ? "bg-brand text-primary-foreground"
-                : isEvent
-                  ? "bg-brand/15 text-brand"
-                  : "bg-mint/25 text-mint-foreground";
-              return (
-                <ScrollReveal key={post.id} delay={Math.min(0.08 * index, 0.24)} scale>
-                  <article className="group hover-glow rounded-3xl border border-brand/20 bg-card p-6 shadow-sm transition-transform duration-200 ease-out hover:pointer-fine:-translate-y-1 md:p-10">
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-                      <span className="grid size-12 shrink-0 place-items-center rounded-full bg-brand/15 text-brand">
-                        <Pin aria-hidden="true" className="size-6 -rotate-12" />
-                      </span>
-                      <span
-                        className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-extrabold tracking-widest uppercase ${kindClass}`}
-                      >
-                        {isRegistration && <PulseDot />}
-                        {kindLabel}
-                      </span>
-                      {post.event_date && <EventCountdown eventDate={post.event_date} />}
-                      {post.event_date && (
-                        <span className="inline-flex items-center gap-2 text-sm font-bold text-muted-foreground">
-                          {isUpcoming && <PulseDot />}
-                          <span>📅 {formatDate(post.event_date)}</span>
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="mt-6 max-w-4xl font-display text-3xl leading-[1.05] font-bold text-brand-deep transition-colors duration-200 group-hover:text-brand md:text-6xl">
-                      {post.title}
-                    </h3>
-                    {post.location && (
-                      <p className="mt-3 text-base font-bold text-brand">📍 {post.location}</p>
-                    )}
-                    <p className="mt-5 max-w-3xl text-base leading-relaxed font-semibold whitespace-pre-line text-foreground/80 md:text-lg">
-                      {post.body}
-                    </p>
-                    {isRegistration && (
-                      <div className="mt-8">
-                        <a
-                          href="#join"
-                          className="cta-pulse clay-md group inline-flex items-center gap-2 rounded-2xl bg-brand px-8 py-4 text-lg font-bold text-primary-foreground transition-transform duration-200 hover:pointer-fine:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-                        >
-                          Register now
-                          <ArrowRight
-                            aria-hidden="true"
-                            className="size-5 transition-transform duration-200 group-hover:translate-x-1"
-                          />
-                        </a>
-                      </div>
-                    )}
-                  </article>
-                </ScrollReveal>
-              );
-            })}
+            {announcements.map((announcement, index) => (
+              <SubmissionAnnouncementCard
+                key={announcement.id}
+                announcement={announcement}
+                index={index}
+              />
+            ))}
           </div>
         )}
       </section>
@@ -409,12 +330,10 @@ function Index() {
         <ScrollReveal>
           <div className="max-w-3xl">
             <p className="text-xs font-extrabold tracking-widest text-brand uppercase">
-              Registrations
+              All registrations
             </p>
             <h2 className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-3 font-display text-4xl leading-tight font-bold md:text-5xl">
-              <span>
-                {hasOpenCampaigns ? "Join an open registration" : "Registrations closed right now"}
-              </span>
+              <span>{hasOpenCampaigns ? "Join a campaign" : "Registrations closed right now"}</span>
               {hasOpenCampaigns && (
                 <span className="inline-flex items-center gap-2 rounded-full bg-brand/15 px-4 py-1.5 text-xs font-extrabold tracking-widest text-brand uppercase md:text-sm">
                   <PulseDot />
@@ -423,7 +342,7 @@ function Index() {
               )}
             </h2>
             <p className="mt-3 max-w-2xl font-semibold text-foreground/75">
-              Pick a campaign to apply — our team reviews every submission.
+              Every open campaign in one place — pick the one you want and apply.
             </p>
           </div>
         </ScrollReveal>

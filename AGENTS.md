@@ -21,6 +21,27 @@ Until the Supabase CLI is linked to this project (`supabase link --project-ref p
 | `0003_member_blocking.sql` | `members.blocked_until` |
 | `0004_admin_email_drafts.sql` | `admin_email_drafts` table + RLS |
 | `0015_dashboard_stats.sql` | `get_dashboard_stats` SECURITY DEFINER RPC (SQL-side dashboard aggregation) + aggregate-support indexes |
+| `0016_submission_announcements.sql` | Retires the `event`/`news` announcement kinds — `post_kind` is rebuilt as `('registration')`; adds `posts.submission_type`, `posts.subtitle`, `posts.is_pinned`; refreshes the `get_dashboard_stats` announcement series |
+
+### Announcements = submissions only
+
+`posts` is no longer a news feed. The `event` and `news` kinds are gone from the
+database, the public site and the admin console. Every announcement now exists to
+announce a submission (`submission_type`: `'openday' | 'event'`), and its CTA
+sends the student to `#join` — the open-campaign list owned by
+`registration_campaigns` / `registrations`.
+
+| Piece | Path |
+|---|---|
+| Domain vocabulary (types, labels, sort, date helpers) | `src/lib/announcements.ts` |
+| Public card | `src/components/submission-announcement-card.tsx` |
+| Public feed | `src/routes/index.tsx` → section `#submissions` |
+| Admin form + list | `src/routes/_authenticated/gestion.admin.tsx` → tab `events` (labelled **Submissions**) |
+| Server functions | `src/lib/admin-api.ts` → `listPosts` / `savePost` / `deletePost` |
+
+The admin "Submissions" section key stays `"events"` (it is a stored
+`admin_permissions` value and a `get_dashboard_stats` flag) — only the labels
+changed.
 
 ## Verification
 

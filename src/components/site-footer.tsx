@@ -15,7 +15,7 @@ const EXPLORE_LINKS: ReadonlyArray<{ to: "/" | "/about"; hash?: string; label: s
   { to: "/", label: "Home" },
   { to: "/about", label: "About" },
   { to: "/", hash: "leaders", label: "Team" },
-  { to: "/", hash: "news", label: "Events" },
+  { to: "/", hash: "submissions", label: "Submissions" },
 ];
 
 /** Current official brand marks (Font Awesome 6 brand glyphs) as inline SVGs. */

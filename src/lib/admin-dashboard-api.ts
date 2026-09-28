@@ -311,16 +311,16 @@ async function aggregateLocally(db: unknown, flags: SectionFlags, isOwner: boole
   }
 
   if (flags.events) {
-    const postRows = await rows("posts", "kind, event_date, created_at, published");
+    // Every row is a submission announcement — there is no `kind` filter left
+    // since the event/news types were retired (migration 0016).
+    const postRows = await rows("posts", "event_date, created_at, published");
     let published = 0;
     let drafts = 0;
     const eventDates: string[] = [];
     for (const row of postRows) {
       if (row["published"] === true) published += 1;
       else drafts += 1;
-      if (row["kind"] === "event") {
-        eventDates.push(String(row["event_date"] ?? row["created_at"] ?? ""));
-      }
+      eventDates.push(String(row["event_date"] ?? row["created_at"] ?? ""));
     }
     stats.events = { by_month: monthlySeries(6, eventDates), published, drafts };
   }

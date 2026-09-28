@@ -7,7 +7,7 @@ import logo from "@/assets/wavez-logo.png";
 const NAV_ITEMS: ReadonlyArray<{ to: "/" | "/about"; hash?: string; label: string }> = [
   { to: "/about", label: "About" },
   { to: "/", hash: "leaders", label: "Team" },
-  { to: "/", hash: "news", label: "Events" },
+  { to: "/", hash: "submissions", label: "Submissions" },
   { to: "/", hash: "join", label: "Join" },
 ];
 
