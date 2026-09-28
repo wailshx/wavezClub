@@ -22,6 +22,7 @@ Until the Supabase CLI is linked to this project (`supabase link --project-ref p
 | `0004_admin_email_drafts.sql` | `admin_email_drafts` table + RLS |
 | `0015_dashboard_stats.sql` | `get_dashboard_stats` SECURITY DEFINER RPC (SQL-side dashboard aggregation) + aggregate-support indexes |
 | `0016_submission_announcements.sql` | Retires the `event`/`news` announcement kinds — `post_kind` is rebuilt as `('registration')`; adds `posts.submission_type`, `posts.subtitle`, `posts.is_pinned`; refreshes the `get_dashboard_stats` announcement series |
+| `0018_members_unique_email.sql` | Unique index on `lower(members.email)`. Accepting a submission writes a `members` row and the same person can apply to an open day *and* an event; without the constraint both accepts succeed. The migration refuses to run and lists the conflicting rows rather than deduping |
 | `0017_post_campaign_link.sql` | Adds `posts.campaign_id` → `registration_campaigns(id) ON DELETE SET NULL` + index. The announcement *is* the registration entry point, so each one points at the single campaign it announces |
 
 ### Announcements = submissions only
@@ -76,7 +77,16 @@ matches the draft's `submission_type`, with their live submission counts.
 
 Each announcement card in the admin list expands into a submissions inbox
 (`CampaignSubmissions`) for reviewing documents, accepting (which adds a member
-for `membership`, and only confirms for `event`), removing, and checking in.
+for `membership`, and only confirms for `event`), removing, checking in, and
+deleting permanently.
+
+**Remove vs Delete.** `removeRegistration` is the safe path: it only sets
+`status = 'removed'`, so the record and its uploads survive for auditing.
+`deleteRegistration` is destructive — it drops the row *and* the objects in the
+`identity-documents` bucket, and never touches the member row an accepted
+submission created. Deleting an application must not silently un-enrol someone.
+`acceptRegistration` refuses when the address is already a member, so the same
+person cannot be enrolled twice from two campaigns.
 
 `registration_campaigns` and `registrations` are kept as storage. They were
 folded into the Submissions UI, not into the posts table — submissions are a

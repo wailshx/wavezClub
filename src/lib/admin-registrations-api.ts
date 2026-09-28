@@ -54,6 +54,7 @@ type MutateResult = { error: { message: string } | null };
 type SelectResult<T> = { data: T[] | null; error: { message: string } | null };
 type SelectChain<T> = {
   eq(column: string, value: unknown): Promise<SelectResult<T>>;
+  ilike(column: string, pattern: string): Promise<SelectResult<T>>;
 } & PromiseLike<SelectResult<T>>;
 type EqChain = {
   eq(column: string, value: unknown): Promise<MutateResult>;
@@ -243,9 +244,27 @@ export const acceptRegistration = createServerFn({ method: "POST" })
     const kind = (campaignRows ?? [])[0]?.["kind"] as CampaignKind | undefined;
 
     if (kind === "membership") {
+      // Someone can apply to an open day and an event with the same address.
+      // Without this, accepting both would silently create two member rows.
+      const email = registration.email.toLowerCase();
+      // `_` and `%` are LIKE wildcards and both are legal in an email address,
+      // so they have to be escaped for this to be an exact case-insensitive hit.
+      const pattern = email.replace(/([\\%_])/g, "\\$1");
+      const { data: rows } = await membersTable(supabase)
+        .select("id, full_name")
+        .ilike("email", pattern);
+      const existing = (rows ?? [])[0];
+      if (existing) {
+        const existingName = (existing["full_name"] as string | undefined) ?? email;
+        throw new Error(
+          `${existingName} is already a member (${email}). Accepting this would create a ` +
+            `second member row — remove the older submission instead, or edit the existing member.`,
+        );
+      }
+
       const member: Record<string, unknown> = {
         full_name: `${registration.first_name} ${registration.last_name}`.trim(),
-        email: registration.email.toLowerCase(),
+        email,
         phone: registration.phone,
         level: registration.school_year,
         department: registration.department,
@@ -279,6 +298,43 @@ export const removeRegistration = createServerFn({ method: "POST" })
   });
 
 /** Toggle interview check-in. Low-stakes: no confirmation, instant undo. */
+/**
+ * Permanently delete a submission and the documents it uploaded.
+ *
+ * `removeRegistration` is the safe path — it only marks the row `removed` so
+ * the record and its uploads survive for auditing. This is the destructive one,
+ * for a submission that should not exist at all (spam, a duplicate upload, a
+ * test run). The member row an accepted submission created is NOT touched:
+ * deleting the application must not silently un-enrol someone from the club.
+ */
+export const deleteRegistration = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((registrationId: string) => registrationId)
+  .handler(async ({ context, data: registrationId }) => {
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
+
+    const { data } = await registrationsTable(supabase).select("*").eq("id", registrationId);
+    const registration = (data ?? [])[0] as unknown as AdminRegistration | undefined;
+    if (!registration) throw new Error("Submission not found.");
+
+    // The columns hold object paths, not URLs, so they can be removed directly.
+    const paths = [registration.school_certificate_url, registration.identity_card_url].filter(
+      (path): path is string => Boolean(path),
+    );
+    if (paths.length > 0) {
+      const { error: storageError } = await supabase.storage
+        .from("identity-documents")
+        .remove(paths);
+      // A missing object is not worth blocking the delete for; the row is the
+      // record of truth and an orphaned file is harmless.
+      if (storageError) console.warn("deleteRegistration: storage cleanup failed", storageError);
+    }
+
+    const { error } = await registrationsTable(supabase).delete().eq("id", registrationId);
+    if (error) throw new Error(error.message);
+    return true;
+  });
+
 export const toggleRegistrationCheckIn = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: { id: string; checked_in: boolean }) => input)

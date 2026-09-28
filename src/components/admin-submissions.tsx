@@ -19,6 +19,7 @@ import {
 
 import {
   acceptRegistration,
+  deleteRegistration,
   getRegistrationDocumentUrl,
   listCampaignRegistrations,
   removeRegistration,
@@ -232,6 +233,7 @@ export function RegistrationsView({
   onAccept,
   onRemove,
   onCheckIn,
+  onDelete,
 }: {
   campaign: AdminCampaign;
   registrations: AdminRegistration[];
@@ -242,6 +244,7 @@ export function RegistrationsView({
   onAccept: (registration: AdminRegistration) => void;
   onRemove: (registration: AdminRegistration) => void;
   onCheckIn: (registration: AdminRegistration) => void;
+  onDelete: (registration: AdminRegistration) => void;
 }) {
   const questions = campaign.custom_questions ?? [];
   const [tab, setTab] = useState<"all" | "awaiting" | "interviewed" | "processed">("all");
@@ -371,6 +374,7 @@ export function RegistrationsView({
                   onAccept={onAccept}
                   onRemove={onRemove}
                   onCheckIn={onCheckIn}
+                  onDelete={onDelete}
                   processed={registration.status !== "pending"}
                 />
               ))}
@@ -388,6 +392,7 @@ function RegistrationCard({
   onAccept,
   onRemove,
   onCheckIn,
+  onDelete,
   processed = false,
   showDocuments = false,
 }: {
@@ -396,6 +401,7 @@ function RegistrationCard({
   onAccept: (registration: AdminRegistration) => void;
   onRemove: (registration: AdminRegistration) => void;
   onCheckIn: (registration: AdminRegistration) => void;
+  onDelete: (registration: AdminRegistration) => void;
   processed?: boolean;
   showDocuments?: boolean;
 }) {
@@ -486,6 +492,14 @@ function RegistrationCard({
               >
                 <Trash2 className="size-3.5" />
                 Remove
+              </button>
+              <button
+                onClick={() => onDelete(registration)}
+                title="Delete this submission and its documents for good"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-[#64748b] transition-colors hover:border-[#f43f5e]/40 hover:bg-[#f43f5e]/10 hover:text-[#fda4af]"
+              >
+                <X className="size-3.5" />
+                Delete
               </button>
             </>
           )}
@@ -613,6 +627,7 @@ export function CampaignSubmissions({ campaign }: { campaign: AdminCampaign }) {
   const queryClient = useQueryClient();
   const [acceptTarget, setAcceptTarget] = useState<AdminRegistration | null>(null);
   const [removeTarget, setRemoveTarget] = useState<AdminRegistration | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminRegistration | null>(null);
 
   const { data: registrations = [], isLoading } = useQuery({
     queryKey: ["campaign-registrations", campaign.id],
@@ -655,6 +670,17 @@ export function CampaignSubmissions({ campaign }: { campaign: AdminCampaign }) {
     onError: (error) => toast.error(error.message ?? "Could not remove the submission"),
   });
 
+  const destroy = useMutation({
+    mutationFn: (id: string) => deleteRegistration({ data: id }),
+    onSuccess: () => {
+      toast.success("Submission deleted permanently");
+      setDeleteTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["campaign-registrations", campaign.id] });
+      queryClient.invalidateQueries({ queryKey: ["admin-campaigns"] });
+    },
+    onError: (error) => toast.error(error.message ?? "Could not delete the submission"),
+  });
+
   const modalRoot = typeof document !== "undefined" ? document.body : null;
 
   return (
@@ -670,10 +696,11 @@ export function CampaignSubmissions({ campaign }: { campaign: AdminCampaign }) {
         onCheckIn={(registration) =>
           checkIn.mutate({ id: registration.id, checked_in: !registration.checked_in })
         }
+        onDelete={(registration) => setDeleteTarget(registration)}
       />
 
       {modalRoot &&
-        (acceptTarget || removeTarget) &&
+        (acceptTarget || removeTarget || deleteTarget) &&
         createPortal(
           <div
             className="fixed inset-0 z-[60] grid place-items-center bg-black/60 px-5 py-10 backdrop-blur-sm"
@@ -754,6 +781,46 @@ export function CampaignSubmissions({ campaign }: { campaign: AdminCampaign }) {
                     </button>
                     <button
                       onClick={() => setRemoveTarget(null)}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {deleteTarget && (
+                <>
+                  <h2 className="font-display text-xl font-bold text-white">
+                    Delete this submission for good
+                  </h2>
+                  <p className="mt-2 text-sm font-semibold text-[#94a3c8]">
+                    This permanently deletes{" "}
+                    <span className="text-white">
+                      {deleteTarget.first_name} {deleteTarget.last_name}
+                    </span>{" "}
+                    ({deleteTarget.email}) and{" "}
+                    <span className="text-[#fcd34d]">their uploaded documents</span>. It cannot be
+                    undone — use <span className="text-white">Remove</span> instead if you only want
+                    to set this application aside.
+                  </p>
+                  {deleteTarget.status === "accepted" && campaign.kind === "membership" && (
+                    <p className="mt-2 rounded-xl border border-[#34d399]/30 bg-[#34d399]/10 px-3 py-2 text-xs font-bold text-[#6ee7b7]">
+                      This student was accepted, so they are already a member. Deleting the
+                      application does <span className="text-white">not</span> remove them from
+                      Members — edit their member record separately.
+                    </p>
+                  )}
+                  <div className="mt-6 flex gap-3">
+                    <button
+                      onClick={() => destroy.mutate(deleteTarget.id)}
+                      disabled={destroy.isPending}
+                      className="clay-md rounded-2xl bg-[#f43f5e] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(244,63,94,0.6)] disabled:opacity-70"
+                    >
+                      {destroy.isPending ? "Deleting…" : "Delete permanently"}
+                    </button>
+                    <button
+                      onClick={() => setDeleteTarget(null)}
                       className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
                     >
                       Cancel
