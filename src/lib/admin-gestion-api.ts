@@ -19,13 +19,15 @@ export const ADMIN_ROLES = [
 
 export type AdminRole = (typeof ADMIN_ROLES)[number];
 
-/** Roles available on the public request form — the club's two departments
- * (Media and HR) only, per the current club structure. President is owner-only. */
-export const SUBMITTABLE_ADMIN_ROLES = ["media_leader", "hr_leader"] as const;
+/** Roles available on the public request form — the club's three leadership
+ * seats. The vice_* variants exist in the enum but are not offered: an
+ * applicant is applying to lead a department, not to deputise for it. */
+export const SUBMITTABLE_ADMIN_ROLES = ["president", "media_leader", "hr_leader"] as const;
 
 export type SubmittableAdminRole = (typeof SUBMITTABLE_ADMIN_ROLES)[number];
 
 export const DEPARTMENT_LABELS: Record<SubmittableAdminRole, string> = {
+  president: "President",
   media_leader: "Media",
   hr_leader: "HR",
 };

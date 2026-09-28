@@ -161,6 +161,149 @@ export async function requireAnySection(context: AdminContext, ...sections: Admi
 
 export type SectionRequest = AdminSession & { supabase: SupabaseClient<Database> };
 
+// ─── Admin role requests (owner-managed) ─────────────────────────────────────
+
+/**
+ * Pending applications to join the club's officers.
+ *
+ * The emailed accept/cancel link is the primary path, but it is only useful
+ * while the owner still has the email. These are the in-console equivalents so
+ * a request can also be approved, rejected or dropped from the Admins tab.
+ */
+const adminRequestsAdmin = (supabase: SupabaseClient<Database> | unknown) =>
+  supabase as unknown as LooseDb;
+
+const adminRequestsTable = (supabase: SupabaseClient<Database> | unknown) =>
+  adminRequestsAdmin(supabase).from("admin_requests");
+
+export const listAdminRequests = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await requireOwner(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const table = adminRequestsTable(supabaseAdmin);
+
+    const { data, error } = await table.select(
+      "id, first_name, last_name, email, phone, department, status, created_at, decided_at",
+    );
+    if (error) throw new Error(error.message);
+
+    return ((data ?? []) as Record<string, unknown>[])
+      .map((row) => ({
+        id: String(row["id"]),
+        name:
+          `${String(row["first_name"] ?? "")} ${String(row["last_name"] ?? "")}`.trim() ||
+          "Anonymous",
+        email: String(row["email"] ?? ""),
+        phone: String(row["phone"] ?? ""),
+        role: String(row["department"] ?? ""),
+        status: String(row["status"] ?? "pending"),
+        created_at: String(row["created_at"] ?? ""),
+        decided_at: row["decided_at"] ? String(row["decided_at"]) : null,
+      }))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  });
+
+/**
+ * Approve or reject a request from the console.
+ *
+ * Approval is the same work the emailed link does: find (or invite) the auth
+ * user, then grant the role. Refuses anything not `pending` so a request can
+ * never be decided twice from two different entry points.
+ */
+export const decideAdminRequest = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: { requestId: string; action: "approve" | "reject" }) => ({
+    requestId: input.requestId,
+    action: input.action,
+  }))
+  .handler(async ({ context, data: { requestId, action } }) => {
+    await requireOwner(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const table = adminRequestsTable(supabaseAdmin);
+
+    const { data, error } = await table.select("*").eq("id", requestId);
+    if (error) throw new Error(error.message);
+    const request = (data ?? [])[0];
+    if (!request) throw new Error("Request not found.");
+    if (request["status"] !== "pending") {
+      throw new Error("This request has already been processed.");
+    }
+    const email = String(request["email"] ?? "");
+    if (!email) throw new Error("This request has no email address.");
+
+    if (action === "reject") {
+      const { error: rejectError } = await table
+        .update({ status: "rejected", decided_at: new Date().toISOString() })
+        .eq("id", requestId);
+      if (rejectError) throw new Error(rejectError.message);
+      return true;
+    }
+
+    const admin = supabaseAdmin.auth.admin;
+    const { data: listed } = await admin.listUsers({ perPage: 1000 });
+    let userId = listed?.users.find(
+      (user: { email?: string }) => user.email?.toLowerCase() === email.toLowerCase(),
+    )?.id;
+
+    if (!userId) {
+      const request2 = await import("@tanstack/react-start/server");
+      const req = request2.getRequest();
+      const proto = req?.headers.get("x-forwarded-proto") ?? "https";
+      const host = req?.headers.get("x-forwarded-host") ?? req?.headers.get("host");
+      const redirectTo = host ? `${proto}://${host}/gestion` : undefined;
+
+      const invited = await admin.inviteUserByEmail(email, redirectTo ? { redirectTo } : {});
+      if (invited.error) throw new Error(invited.error.message);
+
+      const { data: afterInvite } = await admin.listUsers({ perPage: 1000 });
+      userId = afterInvite?.users.find(
+        (user: { email?: string }) => user.email?.toLowerCase() === email.toLowerCase(),
+      )?.id;
+    }
+    if (!userId) throw new Error("Could not resolve the user account.");
+
+    // (user_id, role) is unique, so an existing grant is a no-op rather than an
+    // error — check before inserting, because the loose wrapper cannot filter.
+    const roles = adminRequestsAdmin(supabaseAdmin).from("user_roles");
+    const { data: existingRole } = await roles.select("id").eq("user_id", userId);
+    if ((existingRole ?? []).length === 0) {
+      const { error: roleError } = await roles.insert({
+        user_id: userId,
+        role: "admin",
+        admin_role: request["department"],
+      });
+      if (roleError) throw new Error(roleError.message);
+    }
+
+    const { error: approveError } = await table
+      .update({ status: "approved", decided_at: new Date().toISOString() })
+      .eq("id", requestId);
+    if (approveError) throw new Error(approveError.message);
+    return true;
+  });
+
+/**
+ * Delete a request outright, whatever its status.
+ *
+ * `decideAdminRequest` leaves an audit trail; this is for the cases that is the
+ * wrong shape — a spam flood from one address, or a request for a role that no
+ * longer exists. Owner-only, and deliberately not a bulk operation: deleting an
+ * application is not reversible, so it is one deliberate click at a time.
+ */
+export const deleteAdminRequest = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((requestId: string) => requestId)
+  .handler(async ({ context, data: requestId }) => {
+    await requireOwner(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const table = adminRequestsTable(supabaseAdmin);
+
+    const { error } = await table.delete().eq("id", requestId);
+    if (error) throw new Error(error.message);
+    return true;
+  });
+
 /** Owner-only gate — used by the Admins page data functions. */
 export async function requireOwner(context: AdminContext) {
   const access = await loadSessionAccess(context);

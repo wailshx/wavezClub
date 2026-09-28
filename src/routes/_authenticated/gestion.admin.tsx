@@ -27,6 +27,7 @@ import {
   Award,
   Ban,
   CalendarDays,
+  Check,
   ChevronDown,
   ChevronLeft,
   ClipboardList,
@@ -135,6 +136,9 @@ import {
   adminSectionLabel,
   getAdminSession,
   listAdmins,
+  listAdminRequests,
+  decideAdminRequest,
+  deleteAdminRequest,
   setAdminDisabled,
   setAdminSectionAllowed,
   updateAdminProfile,
@@ -1038,6 +1042,38 @@ function AdminPage() {
     queryKey: ["admin-management-admins"],
     enabled: isAdmin === true && isOwner,
     queryFn: () => listAdmins(),
+  });
+
+  // Officer applications. The emailed accept/cancel link is the primary path,
+  // but the owner also needs to clear the queue from here.
+  const { data: adminRequests = [] } = useQuery({
+    queryKey: ["admin-requests"],
+    enabled: isAdmin === true && isOwner,
+    queryFn: () => listAdminRequests(),
+  });
+
+  const pendingRequests = adminRequests.filter((request) => request.status === "pending");
+
+  const decideRequest = useMutation({
+    mutationFn: (input: { requestId: string; action: "approve" | "reject" }) =>
+      decideAdminRequest({ data: input }),
+    onSuccess: (_result, input) => {
+      toast.success(input.action === "approve" ? "Request approved" : "Request rejected");
+      queryClient.invalidateQueries({ queryKey: ["admin-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-management-admins"] });
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Could not update the request"),
+  });
+
+  const deleteRequest = useMutation({
+    mutationFn: (requestId: string) => deleteAdminRequest({ data: requestId }),
+    onSuccess: () => {
+      toast.success("Request deleted");
+      queryClient.invalidateQueries({ queryKey: ["admin-requests"] });
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Could not delete the request"),
   });
 
   const saveProfile = useMutation({
@@ -3434,7 +3470,84 @@ function AdminPage() {
                   </div>
 
                   <div className="admin-glass mt-6 overflow-x-auto rounded-2xl">
-                    <table className="w-full text-sm">
+                    {pendingRequests.length > 0 && (
+                      <div className="mt-6 border-t border-white/10 pt-5">
+                        <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                          Pending applications
+                        </p>
+                        <p className="mt-1 text-xs font-semibold text-[#64748b]">
+                          The applicant also received an accept/cancel link by email. Approving here
+                          grants the role immediately.
+                        </p>
+                        <ul className="mt-3 space-y-2">
+                          {pendingRequests.map((request) => (
+                            <li
+                              key={request.id}
+                              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-bold text-white">
+                                  {request.name}
+                                </p>
+                                <p className="truncate text-xs font-semibold text-[#94a3c8]">
+                                  {request.email}
+                                  {request.phone ? ` · ${request.phone}` : ""} ·{" "}
+                                  {prettyRole(request.role)} ·{" "}
+                                  {new Date(request.created_at).toLocaleDateString("en-GB")}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                                <button
+                                  onClick={() =>
+                                    decideRequest.mutate({
+                                      requestId: request.id,
+                                      action: "approve",
+                                    })
+                                  }
+                                  disabled={decideRequest.isPending}
+                                  className="clay-sm inline-flex items-center gap-1 rounded-lg bg-[#34d399]/20 px-3 py-1.5 text-xs font-extrabold text-[#6ee7b7] transition hover:bg-[#34d399]/30 disabled:opacity-60"
+                                >
+                                  <Check className="size-3.5" />
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    decideRequest.mutate({
+                                      requestId: request.id,
+                                      action: "reject",
+                                    })
+                                  }
+                                  disabled={decideRequest.isPending}
+                                  className="clay-sm inline-flex items-center gap-1 rounded-lg bg-white/5 px-3 py-1.5 text-xs font-extrabold text-[#94a3c8] transition hover:bg-white/10 disabled:opacity-60"
+                                >
+                                  <X className="size-3.5" />
+                                  Reject
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (
+                                      confirm(
+                                        `Delete ${request.name}'s application for good? This cannot be undone.`,
+                                      )
+                                    ) {
+                                      deleteRequest.mutate(request.id);
+                                    }
+                                  }}
+                                  disabled={deleteRequest.isPending}
+                                  title="Delete this application"
+                                  className="clay-sm inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-extrabold text-[#64748b] transition hover:border-[#f43f5e]/40 hover:bg-[#f43f5e]/10 hover:text-[#fda4af] disabled:opacity-60"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                  Delete
+                                </button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <table className="mt-6 w-full text-sm">
                       <thead>
                         <tr className="bg-white/[0.04] text-left text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
                           <th className="px-5 py-3">Name</th>

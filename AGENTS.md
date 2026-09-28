@@ -158,6 +158,7 @@ Auto-applies on Lovable deploy. Creates:
 | `submitAdminRequestAction` | Public (anon client) | Insert pending request + stub email with accept/cancel token links |
 | `ensureOwnerAdmin` | Auth middleware | On every `_authenticated` entry, if signed-in email matches `OWNER_EMAIL`, insert the `president` role if missing |
 | `decideAdminRequestAction` | Token-authenticated | Accept: create user_roles + Supabase invite. Cancel: mark rejected + stub rejection email |
+| `listAdminRequests` / `decideAdminRequest` / `deleteAdminRequest` | Owner (session) | The in-console equivalents: the Admins tab shows pending applications with Approve / Reject / Delete. Approving grants the role immediately instead of waiting for the emailed link |
 
 ### Token flow
 

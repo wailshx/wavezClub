@@ -4,10 +4,12 @@ export const LEVELS = ["L1", "L2", "L3", "M1", "M2"] as const;
 export type Level = (typeof LEVELS)[number];
 
 export const SPECIALITIES = [
-  "Power Electronics",
-  "Embedded Systems",
-  "Telecom & Signals",
-  "Control & Automation",
+  "Systems",
+  "Autonomous Systems",
+  "Artificial Intelligence",
+  "Telecommunications",
+  "Electrotechnics",
+  "Automatic Control",
 ] as const;
 
 export const DEPARTMENTS = [
