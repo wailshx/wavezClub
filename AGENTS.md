@@ -255,10 +255,42 @@ Auto-applies on Lovable deploy. Creates:
 
 | Export | Auth | Purpose |
 |---|---|---|
-| `submitAdminRequestAction` | Public (anon client) | Insert pending request + stub email with accept/cancel token links |
+| `submitAdminRequestAction` | Public (anon client) | Insert pending request + Telegram alert with the signed review link |
 | `ensureOwnerAdmin` | Auth middleware | On every `_authenticated` entry, if signed-in email matches `OWNER_EMAIL`, insert the `president` role if missing |
-| `decideAdminRequestAction` | Token-authenticated | Accept: create user_roles + Supabase invite. Cancel: mark rejected + stub rejection email |
+| `ensureApprovedRequestRole` | Auth middleware | On every `_authenticated` entry, if the caller has no officer role but an **approved** request matches their verified email, grant that request's `department`. Repairs officers approved before the grant was written to the wrong table |
+| `decideAdminRequestAction` | Token-authenticated | Accept: resolve the auth user, grant `user_roles`, then mark approved. Cancel: mark rejected + rejection email |
 | `listAdminRequests` / `decideAdminRequest` / `deleteAdminRequest` | Owner (session) | The in-console equivalents: the Admins tab shows pending applications with Approve / Reject / Delete. Approving grants the role immediately instead of waiting for the emailed link |
+
+### The officer role must land in `user_roles`
+
+Authorization is `has_role(auth.uid(), 'admin')`, which reads **only**
+`public.user_roles`. `admin_requests` is the application record; it has no
+`user_id`, `role` or `admin_role` column, and there is no trigger syncing the
+two. A grant written anywhere else is invisible.
+
+Both accept paths therefore go through `ensureAdminRoleGrant`
+(`src/lib/admin-role-grant.ts`) — the emailed review link
+(`decideAdminRequestAction`) and the console's Admins tab
+(`decideAdminRequest`). They previously disagreed: the console wrote
+`user_roles`, while the review link upserted `{user_id, role, admin_role}` into
+`admin_requests`, a write PostgREST rejects with `PGRST204` ("Could not find the
+'admin_role' column"). That error was never checked, so accept reported success
+and the officer could set a password and sign in — then got "Not a club officer"
+on every page. The helper grants **before** the request is marked approved, so a
+failure leaves it pending and retryable rather than approved-but-roleless.
+
+Two details the helper exists to keep in one place:
+
+- It filters on `role = 'admin'`, not just `user_id`. A person can also hold a
+  non-admin `user_roles` row, and matching on `user_id` alone would treat them
+  as already granted and skip the insert.
+- Revocation is **soft** (`user_roles.disabled_at`); nothing deletes the row. An
+  existence check is therefore what stops a re-grant from undoing a revocation.
+
+`ensureApprovedRequestRole` is the self-heal for accounts broken before the fix:
+`admin_requests` has no `user_id`, so it links by email, which is safe because
+the email comes from the caller's own verified session — it can only ever
+re-grant a role the club already approved.
 
 ### Token flow
 

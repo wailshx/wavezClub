@@ -3,6 +3,7 @@ import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { ensureAdminRoleGrant } from "@/lib/admin-role-grant";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { GoTrueAdminApi as AuthAdminApi } from "@supabase/auth-js";
 
@@ -80,10 +81,6 @@ type AdminRequestsQuery = {
   update(patch: { status: AdminRequestStatus; decided_at: string }): {
     eq(column: string, value: string): Promise<MutateResult>;
   };
-  upsert(
-    row: { user_id: string; role: "admin"; admin_role: AdminRole },
-    opts: { onConflict: string },
-  ): Promise<MutateResult>;
 };
 
 type AdminRequestsSelectChain = {
@@ -92,6 +89,7 @@ type AdminRequestsSelectChain = {
 };
 
 type AdminRequestsWhereChain = {
+  eq(column: string, value: string): AdminRequestsWhereChain;
   single(): Promise<RequestResult>;
   limit(count: number): { single(): Promise<RequestResult> };
   order(column: string, opts: { ascending: boolean }): AdminRequestsWhereChain;
@@ -316,6 +314,64 @@ export const ensureOwnerAdmin = createServerFn({ method: "POST" })
     return true;
   });
 
+/**
+ * Give the caller the officer role their approved request already entitled them
+ * to, when the role row is missing.
+ *
+ * Accept via the emailed review link used to write the grant to the wrong table,
+ * so anyone approved that way before the fix has no `user_roles` row: they can
+ * set a password and sign in, but every check answers "Not a club officer".
+ * `admin_requests` has no `user_id`, so the only link back is the email -- which
+ * is safe to trust here because it comes from the caller's own verified session,
+ * so this can only ever re-grant a role the club already approved.
+ */
+export const ensureApprovedRequestRole = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data: userData } = await context.supabase.auth.getUser();
+    const email = userData?.user?.email?.toLowerCase();
+    if (!email) return false;
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Already an officer -> nothing to do. A disabled officer keeps their row,
+    // so this is also what stops a revocation from being silently undone.
+    const { data: existing } = (await supabaseAdmin
+      .from("user_roles")
+      .select("id")
+      .eq("user_id", context.userId)
+      .eq("role", "admin")
+      .maybeSingle()) as unknown as { data: { id: string } | null };
+    if (existing) return true;
+
+    const db = supabaseAdmin as unknown as TypedAdmin;
+    const { data: approved, error } = await db
+      .from("admin_requests")
+      .select("department")
+      .eq("email", email)
+      .eq("status", "approved")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+    if (error || !approved) return false;
+
+    const grant = await ensureAdminRoleGrant(supabaseAdmin, {
+      userId: context.userId,
+      adminRole: approved.department,
+    });
+    if (!grant.ok) {
+      console.error(
+        `[admin-role] self-heal grant failed for ${email} userId=${context.userId}: ${grant.error}`,
+      );
+      return false;
+    }
+
+    console.log(
+      `[admin-role] repaired missing role: granted ${approved.department} to ${email} from an approved request`,
+    );
+    return true;
+  });
+
 /** Fetch request data by verified review token (for the review page). */
 export const getReviewRequest = createServerFn({ method: "GET" })
   .validator((input: { token: string }) => ({ token: input.token }))
@@ -396,12 +452,21 @@ export const decideAdminRequestAction = createServerFn({ method: "POST" })
 
       if (!userId) throw new Error("Could not resolve the user account.");
 
-      await db
-        .from("admin_requests")
-        .upsert(
-          { user_id: userId, role: "admin", admin_role: request.department },
-          { onConflict: "user_id,role" },
+      // Grant the role *before* marking the request approved. `has_role()`
+      // reads user_roles, so a failed grant must leave the request pending and
+      // retryable rather than approved-but-roleless -- which is how an officer
+      // could set a password, sign in, and still be told "Not a club officer".
+      const grant = await ensureAdminRoleGrant(db, {
+        userId,
+        adminRole: request.department,
+      });
+      if (!grant.ok) {
+        console.error(
+          `[admin-request] ROLE GRANT FAILED for requestId=${decoded.requestId} ` +
+            `userId=${userId} error=${grant.error}. Request left pending.`,
         );
+        throw new Error(`Could not grant the officer role: ${grant.error}`);
+      }
 
       await db
         .from("admin_requests")

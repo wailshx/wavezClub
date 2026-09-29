@@ -1,6 +1,7 @@
 // Owner-managed admin access + self-service admin profiles.
 // Server-only (lives in src/lib, away from the **/server/** import-protection).
 import { createServerFn } from "@tanstack/react-start";
+import { ensureAdminRoleGrant } from "@/lib/admin-role-grant";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
@@ -267,18 +268,15 @@ export const decideAdminRequest = createServerFn({ method: "POST" })
     }
     if (!userId) throw new Error("Could not resolve the user account.");
 
-    // (user_id, role) is unique, so an existing grant is a no-op rather than an
-    // error — check before inserting, because the loose wrapper cannot filter.
-    const roles = adminRequestsAdmin(supabaseAdmin).from("user_roles");
-    const { data: existingRole } = await roles.select("id").eq("user_id", userId);
-    if ((existingRole ?? []).length === 0) {
-      const { error: roleError } = await roles.insert({
-        user_id: userId,
-        role: "admin",
-        admin_role: request["department"],
-      });
-      if (roleError) throw new Error(roleError.message);
-    }
+    // Same helper as the emailed-review-link path in admin-gestion-api.ts.
+    // Filtering on `role = 'admin'` (not just user_id) matters: a member can
+    // hold a non-admin user_roles row, and matching on user_id alone would skip
+    // the grant for someone who is also a member.
+    const grant = await ensureAdminRoleGrant(supabaseAdmin, {
+      userId,
+      adminRole: String(request["department"]),
+    });
+    if (!grant.ok) throw new Error(grant.error);
 
     const { error: approveError } = await table
       .update({ status: "approved", decided_at: new Date().toISOString() })
