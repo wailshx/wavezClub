@@ -219,7 +219,7 @@ export const submitAdminRequestAction = createServerFn({ method: "POST" })
     }
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { getOwnerEmail, getSigningSecret } = await import("@/lib/admin-gestion-config.server");
+    const { getSigningSecret } = await import("@/lib/admin-gestion-config.server");
     const db = supabaseAdmin as unknown as TypedAdmin;
     const origin = getBaseUrl();
 
@@ -236,22 +236,37 @@ export const submitAdminRequestAction = createServerFn({ method: "POST" })
     if (!newRow) {
       console.error(
         `[admin-request] inserted request for ${data.email} but could not read it back — ` +
-          `no review link was emailed. Find it in admin_requests and review manually.`,
+          `no review link was sent. Find it in admin_requests and review manually.`,
       );
       return { ok: true as const, requestId: null, ownerNotified: false };
     }
 
     const reviewUrl = `${origin}/gestion/review/${await signReviewToken(getSigningSecret(), newRow.id)}`;
-    // The insert must not fail because mail did, but the request is STRANDED if
-    // this owner alert is lost: /gestion/review/$token is the only approval path,
-    // so nothing can be approved until the owner has that link. Surface the
-    // failure loudly and hand the applicant a reference they can quote.
-    const { sendResendEmail } = await import("@/lib/resend.server");
-    const alert = await sendResendEmail({
-      to: getOwnerEmail(),
-      subject: "New admin request — Wavez Club",
-      text: `There's a new admin request from ${data.firstName} ${data.lastName} — click to review: ${reviewUrl}`,
-    });
+    // The insert must not fail because the alert did, but the request is STRANDED
+    // if it is lost: /gestion/review/$token is the only approval path, so nothing
+    // can be approved until the owner has that link. Surface the failure loudly and
+    // hand the applicant a reference they can quote.
+    //
+    // This is a Telegram push, not email. The owner watches the club chat, and an
+    // officer application is time-sensitive in a way club mail is not. Applicant-
+    // facing messages (the accept/cancel stub, rejections) still go out over
+    // Resend -- deliberately unchanged.
+    const { sendTelegramMessage, escapeHtml } = await import("@/lib/telegram.server");
+    const alert = await sendTelegramMessage(
+      [
+        "<b>New admin request — Wavez Club</b>",
+        "",
+        `<b>Name:</b> ${escapeHtml(data.firstName)} ${escapeHtml(data.lastName)}`,
+        `<b>Role requested:</b> ${escapeHtml(data.department)}`,
+        `<b>Email:</b> ${escapeHtml(data.email)}`,
+        `<b>Phone:</b> ${escapeHtml(data.phone)}`,
+        "",
+        "Review and decide:",
+        escapeHtml(reviewUrl),
+        "",
+        "<i>Approve or reject from the console: Admins tab → Pending applications.</i>",
+      ].join("\n"),
+    );
     if (!alert.ok) {
       console.error(
         `[admin-request] OWNER ALERT FAILED for requestId=${newRow.id} email=${data.email} ` +

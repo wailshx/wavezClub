@@ -164,8 +164,39 @@ npm run build
 |---|---|
 | `SUPABASE_SERVICE_ROLE_KEY` | Used by `client.server.ts` (bypasses RLS for admin operations) |
 | `ADMIN_REQUEST_SIGNING_SECRET` | HMAC signing key for accept/cancel tokens (falls back to insecure dev default locally) |
-| `RESEND_API_KEY` | Resend API key for real email sends (owner alert, rejection, member emails) — **secret; do not commit** |
+| `RESEND_API_KEY` | Resend API key for applicant-facing mail (rejection, member emails) — **secret; do not commit** |
 | `RESEND_FROM` | Optional sender override (e.g. `Wavez Club <no-reply@wavez.club>`). Defaults to the temporary `onboarding@resend.dev` until a verified domain is configured |
+| `TELEGRAM_BOT_TOKEN` | Bot token for the owner's new-admin-request alert — **secret; do not commit** |
+| `TELEGRAM_CHAT_ID` | Chat that receives the owner alert |
+
+`TELEGRAM_BOT_TOKEN` is a full credential: anyone holding it can send messages
+as the bot and read its updates. Keep it out of `.env` (that file is tracked).
+Use `.env.local`, which `.gitignore` excludes. In Vercel, mark both variables
+**sensitive** — that makes them write-only, so they are readable by the runtime
+but not pullable with `vercel env pull`.
+
+### The owner alert is Telegram, not email
+
+When someone applies for a club role, `submitAdminRequestAction` pings the owner
+through `sendTelegramMessage` (`src/lib/telegram.server.ts`) instead of Resend.
+An officer application is time-sensitive in a way club mail is not, and the
+owner watches the club chat rather than an inbox.
+
+**Everything applicant-facing still goes out over email, deliberately.** The
+accept/cancel stub and the rejection notice in `decideAdminRequestAction` are
+unchanged Resend calls — a rejected applicant must be able to check their mail
+for the outcome.
+
+The message carries the applicant's name, requested role, email, phone and the
+signed `/gestion/review/$token` link. Every interpolated field is HTML-escaped:
+Telegram's `parse_mode: "HTML"` rejects an entire message containing a bare `<`,
+so an unescaped applicant name would turn every alert into a 400.
+
+**The review link is the only approval path.** If the alert fails, the request
+sits in `pending` with nothing able to approve it, so `sendTelegramMessage` never
+throws (matching `sendResendEmail`) and the handler logs loudly and returns
+`ownerNotified: false`. Note that the /gestion form currently ignores that flag —
+a failed alert is visible only in server logs.
 
 ## Admin Request Flow (Phase 1)
 
