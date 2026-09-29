@@ -106,6 +106,7 @@ async function loadSessionAccess(context: AdminContext) {
   );
 
   const disabled = Boolean(role?.disabled_at) && !isOwner;
+  const isPresident = role?.admin_role === "president";
   const sections = isOwner
     ? ADMIN_SECTIONS
     : ADMIN_SECTIONS.filter((section) => !restricted.has(section));
@@ -113,6 +114,10 @@ async function loadSessionAccess(context: AdminContext) {
   return {
     isAdmin: Boolean(role),
     isOwner,
+    isPresident,
+    // Mirrors `requireAdminManager` so the UI never offers an action the
+    // server would reject. The owner is never `disabled` by definition.
+    canManageAdmins: Boolean(role) && !disabled && (isOwner || isPresident),
     disabled,
     role: role?.admin_role ?? null,
     displayName: role?.display_name ?? null,
@@ -314,6 +319,43 @@ export async function requireOwner(context: AdminContext) {
   return access;
 }
 
+/**
+ * Gate for acting on other admins: the owner and the president are peers.
+ *
+ * The owner is the club's `president` in every respect here, so anyone holding
+ * that role manages admins exactly as the owner does. `isOwner` is still kept
+ * as its own condition because the owner stays exempt from revocation and from
+ * section restrictions — a president is an ordinary row that can be demoted.
+ */
+export async function requireAdminManager(context: AdminContext) {
+  const access = await loadSessionAccess(context);
+  if (!access.isAdmin) throw new Error("Not authorized");
+  if (access.disabled) throw new Error("Your admin access has been revoked by the owner.");
+  if (!access.isOwner && access.role !== "president") {
+    throw new Error("Only the club owner or the president can manage admins.");
+  }
+  return access;
+}
+
+/**
+ * Refuse any mutating action whose *target* is the owner account.
+ *
+ * The owner is the root of the permission tree: `isOwner` bypasses section
+ * restrictions and can never be revoked, so restricting that row would be
+ * silently ignored while deleting it would lock the club out of its own
+ * console. Checking it here — rather than trusting the caller to filter the
+ * list — keeps it unreachable no matter which button was pressed.
+ */
+async function assertNotOwnerRow(adminId: string) {
+  const supabaseAdmin = await getSupabaseAdmin();
+  const { data, error } = await supabaseAdmin.auth.admin.getUserById(adminId);
+  if (error) throw new Error(error.message);
+  const email = (data?.user?.email ?? "").toLowerCase();
+  if (email && email === getOwnerEmail()) {
+    throw new Error("The club owner's account can't be modified or removed.");
+  }
+}
+
 // ─── Server functions ────────────────────────────────────────────────────────
 
 /** Current admin's session: identity + role + effective section permissions. */
@@ -431,7 +473,7 @@ export const listAdmins = createServerFn({ method: "GET" })
     return admins;
   });
 
-/** Owner-only: grant/restrict one section for one admin. Absent row = full access. */
+/** Owner/president: grant/restrict one section for one admin. Absent row = full access. */
 export const setAdminSectionAllowed = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: { adminId: string; section: AdminSection; allowed: boolean }) => ({
@@ -440,7 +482,8 @@ export const setAdminSectionAllowed = createServerFn({ method: "POST" })
     allowed: input.allowed,
   }))
   .handler(async ({ context, data: { adminId, section, allowed } }) => {
-    await requireOwner(context);
+    await requireAdminManager(context);
+    await assertNotOwnerRow(adminId);
     const supabaseAdmin = await getSupabaseAdmin();
     const table = permissionsTable(supabaseAdmin);
 
@@ -461,7 +504,7 @@ export const setAdminSectionAllowed = createServerFn({ method: "POST" })
     return true;
   });
 
-/** Owner-only: soft-disable (or re-enable) an admin's access entirely. */
+/** Owner/president: soft-disable (or re-enable) an admin's access entirely. */
 export const setAdminDisabled = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: { adminId: string; disabled: boolean }) => ({
@@ -469,15 +512,91 @@ export const setAdminDisabled = createServerFn({ method: "POST" })
     disabled: input.disabled,
   }))
   .handler(async ({ context, data: { adminId, disabled } }) => {
-    const access = await requireOwner(context);
-    if (disabled && context.userId === adminId) {
-      throw new Error("You can't disable your own owner account.");
+    await requireAdminManager(context);
+    // Only the caller's own account is off-limits here; the owner row is
+    // handled by `assertNotOwnerRow` below, which is about the *target*.
+    if (context.userId === adminId) {
+      throw new Error("You can't revoke your own admin account.");
     }
+    await assertNotOwnerRow(adminId);
     const supabaseAdmin = await getSupabaseAdmin();
     const { error } = await userRolesTable(supabaseAdmin)
       .update({ disabled_at: disabled ? new Date().toISOString() : null })
       .eq("user_id", adminId)
       .eq("role", "admin");
     if (error) throw new Error(error.message);
+    return true;
+  });
+
+/**
+ * Owner/president: permanently strip an admin's officer access.
+ *
+ * Distinct from `setAdminDisabled`, which is reversible and keeps the row.
+ * This removes the `user_roles` grant outright, so `has_role` stops returning
+ * true and nothing can re-derive the access from what is left behind.
+ *
+ * Two things are deliberately left alone. The Supabase auth account and the
+ * `members` row are untouched — being removed as an officer is not the same as
+ * deleting a person, and destroying someone's login from an admin panel is not
+ * a decision this button should be able to make. The request history is kept
+ * as the audit trail.
+ *
+ * The approved request, though, is withdrawn, and that part is load-bearing
+ * rather than housekeeping: `ensureApprovedRequestRole` re-grants an officer
+ * role to anyone whose session email still has an approved request, so
+ * deleting only the role row would resurrect the admin on their next sign-in.
+ *
+ * Ordering is chosen so that any failure leaves a safe state — the approval is
+ * withdrawn first, so a later error can never leave a removed admin eligible
+ * for self-healing.
+ */
+export const deleteAdmin = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: { adminId: string }) => ({ adminId: input.adminId }))
+  .handler(async ({ context, data: { adminId } }) => {
+    await requireAdminManager(context);
+    if (context.userId === adminId) {
+      throw new Error("You can't remove your own admin account.");
+    }
+    await assertNotOwnerRow(adminId);
+
+    const supabaseAdmin = await getSupabaseAdmin();
+    const { data: target, error: targetError } =
+      await supabaseAdmin.auth.admin.getUserById(adminId);
+    if (targetError) throw new Error(targetError.message);
+    const email = (target?.user?.email ?? "").toLowerCase();
+
+    // Only ever remove a row that is really an admin, so a mistyped id
+    // removes nothing rather than something unrelated.
+    const { data: roleRows, error: roleError } = await userRolesTable(supabaseAdmin)
+      .select("user_id")
+      .eq("user_id", adminId)
+      .eq("role", "admin");
+    if (roleError) throw new Error(roleError.message);
+    if (!roleRows || roleRows.length === 0) throw new Error("That account isn't an admin.");
+
+    // 1. Withdraw the approval that authorises the grant. First, so that no
+    //    later failure can leave a self-heal-eligible admin behind.
+    if (email) {
+      const { error: approvalError } = await adminRequestsTable(supabaseAdmin)
+        .update({ status: "rejected", decided_at: new Date().toISOString() })
+        .eq("email", email)
+        .eq("status", "approved");
+      if (approvalError) throw new Error(approvalError.message);
+    }
+
+    // 2. Section permissions mean nothing once the role is gone.
+    const { error: permError } = await permissionsTable(supabaseAdmin)
+      .delete()
+      .eq("user_id", adminId);
+    if (permError) throw new Error(permError.message);
+
+    // 3. Drop the officer role itself.
+    const { error: roleDeleteError } = await userRolesTable(supabaseAdmin)
+      .delete()
+      .eq("user_id", adminId)
+      .eq("role", "admin");
+    if (roleDeleteError) throw new Error(roleDeleteError.message);
+
     return true;
   });

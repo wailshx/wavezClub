@@ -136,6 +136,7 @@ import {
   listAdmins,
   listAdminRequests,
   decideAdminRequest,
+  deleteAdmin,
   deleteAdminRequest,
   setAdminDisabled,
   setAdminSectionAllowed,
@@ -148,6 +149,15 @@ import {
   type DashboardCampaignFunnel,
   type DashboardStats,
 } from "@/lib/admin-dashboard-api";
+
+/**
+ * The owner's address is a public build-time value (`VITE_OWNER_EMAIL`), the
+ * same one the server compares against, so the console can recognise the owner
+ * row and avoid rendering actions the server would reject.
+ */
+const OWNER_EMAIL = (
+  (import.meta.env["VITE_OWNER_EMAIL"] as string | undefined) ?? ""
+).toLowerCase();
 
 const ADMIN_TAB_KEYS = [
   "dashboard",
@@ -751,6 +761,7 @@ function AdminPage() {
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
   const [profileUploading, setProfileUploading] = useState(false);
   const [disableTarget, setDisableTarget] = useState<AdminRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminRow | null>(null);
   const [adminManageId, setAdminManageId] = useState<string | null>(null);
 
   const reduced = !!useReducedMotion();
@@ -768,6 +779,16 @@ function AdminPage() {
   const canAccess = (section: AdminSection): boolean =>
     session?.isOwner === true || (session?.sections.includes(section) ?? false);
   const isOwner = session?.isOwner ?? false;
+  // Owner and president are peers for anything that acts on other admins.
+  // Server-side `requireAdminManager` enforces the same rule, so this only
+  // decides what gets rendered rather than what is allowed.
+  const canManageAdmins = session?.canManageAdmins ?? false;
+
+  // The owner row is exempt server-side (`assertNotOwnerRow`), so identify it
+  // here too rather than offering buttons that can only fail. Matching on
+  // email mirrors the server, which resolves the owner from OWNER_EMAIL.
+  const isOwnerRowEmail = (email: string | null | undefined) =>
+    Boolean(email && OWNER_EMAIL) && (email as string).toLowerCase() === OWNER_EMAIL;
 
   // Submissions absorbed the standalone Registrations tab, so either stored
   // permission key opens it. Keeping both avoids locking out admins who were
@@ -1058,7 +1079,7 @@ function AdminPage() {
 
   const { data: admins = [] } = useQuery({
     queryKey: ["admin-management-admins"],
-    enabled: isAdmin === true && isOwner,
+    enabled: isAdmin === true && canManageAdmins,
     queryFn: () => listAdmins(),
   });
 
@@ -1066,7 +1087,7 @@ function AdminPage() {
   // but the owner also needs to clear the queue from here.
   const { data: adminRequests = [] } = useQuery({
     queryKey: ["admin-requests"],
-    enabled: isAdmin === true && isOwner,
+    enabled: isAdmin === true && canManageAdmins,
     queryFn: () => listAdminRequests(),
   });
 
@@ -1130,6 +1151,18 @@ function AdminPage() {
     },
     onError: (err) =>
       toast.error(err instanceof Error ? err.message : "Could not update this admin"),
+  });
+
+  const deleteOfficer = useMutation({
+    mutationFn: (input: { adminId: string }) => deleteAdmin({ data: input }),
+    onSuccess: () => {
+      toast.success("Admin removed");
+      setDeleteTarget(null);
+      setAdminManageId(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-management-admins"] });
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Could not remove this admin"),
   });
 
   function openProfile() {
@@ -1331,11 +1364,11 @@ function AdminPage() {
 
   const filteredNavItems = useMemo(() => {
     return navItems.filter((item) => {
-      if (item.key === "admins") return isOwner;
+      if (item.key === "admins") return canManageAdmins;
       if (isOwner) return true;
       return session?.sections.includes(item.key) ?? false;
     });
-  }, [isOwner, session]);
+  }, [isOwner, canManageAdmins, session]);
 
   const currentNavItem = filteredNavItems.find((item) => item.key === tab);
   const headerLabel = tab === "email" ? "Email" : (currentNavItem?.label ?? "");
@@ -3468,7 +3501,7 @@ function AdminPage() {
             )}
 
             {tab === "admins" &&
-              (isOwner ? (
+              (canManageAdmins ? (
                 <div className="admin-glass mt-8 rounded-3xl p-6 md:p-8">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -3584,7 +3617,11 @@ function AdminPage() {
                           </tr>
                         )}
                         {admins.map((admin) => {
-                          const isOwnerRow = admin.email === session?.email;
+                          const isSelfRow = admin.email === session?.email;
+                          // The owner row is read-only for everyone, including
+                          // a president, so don't offer a Manage button that
+                          // the server would refuse.
+                          const isLockedRow = isSelfRow || isOwnerRowEmail(admin.email);
                           const disabled = Boolean(admin.disabled_at);
                           return (
                             <tr
@@ -3603,7 +3640,7 @@ function AdminPage() {
                                   </Avatar>
                                   <p className="min-w-0 truncate font-bold text-white">
                                     {admin.display_name || admin.email || "Admin"}
-                                    {isOwnerRow && (
+                                    {isSelfRow && (
                                       <span className="ml-2 rounded-full bg-[#fcd34d]/15 px-2 py-0.5 text-[10px] font-extrabold text-[#fcd34d] uppercase">
                                         You
                                       </span>
@@ -3631,9 +3668,9 @@ function AdminPage() {
                                 )}
                               </td>
                               <td className="px-5 py-3.5 text-right">
-                                {isOwnerRow ? (
+                                {isLockedRow ? (
                                   <span className="text-xs font-semibold text-[#64748b]">
-                                    Owner
+                                    {isOwnerRowEmail(admin.email) ? "Owner" : "You"}
                                   </span>
                                 ) : (
                                   <button
@@ -3937,7 +3974,20 @@ function AdminPage() {
                       <Trash2 className="size-4" /> Revoke admin access
                     </PanelAction>
                   )}
+                  {canManageAdmins && !isOwnerRowEmail(managedAdmin.email) && (
+                    <PanelAction
+                      onClick={() => setDeleteTarget(managedAdmin)}
+                      className="border-[#f43f5e]/40 bg-transparent text-[#fda4af] hover:bg-[#f43f5e]/15"
+                    >
+                      <Trash2 className="size-4" /> Delete admin permanently
+                    </PanelAction>
+                  )}
                 </div>
+                <p className="mt-2 text-[11px] font-semibold text-[#64748b]">
+                  Revoking keeps the account and can be undone. Deleting removes the officer role
+                  for good — the person keeps their member record, but only a new application can
+                  grant admin again.
+                </p>
               </div>
             </aside>
           </>
@@ -4309,6 +4359,37 @@ function AdminPage() {
                   className="clay-md rounded-2xl bg-[#f43f5e] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(244,63,94,0.6)] disabled:opacity-70"
                 >
                   {toggleDisabled.isPending ? "Revoking…" : "Revoke admin access"}
+                </button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {deleteTarget && (
+          <Dialog open onOpenChange={(open) => !open && setDeleteTarget(null)}>
+            <DialogContent className="border-white/10 bg-[#0a1226] text-white">
+              <DialogHeader>
+                <DialogTitle className="text-white">Delete admin permanently</DialogTitle>
+                <DialogDescription className="font-semibold text-[#94a3c8]">
+                  {deleteTarget.display_name || deleteTarget.email} loses their officer role and all
+                  admin access immediately. Their login and member record are kept, and their
+                  application is closed so it cannot be restored by a later sign-in — only a new
+                  application can grant admin again.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => deleteOfficer.mutate({ adminId: deleteTarget.user_id })}
+                  disabled={deleteOfficer.isPending}
+                  className="clay-md rounded-2xl bg-[#f43f5e] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(244,63,94,0.6)] disabled:opacity-70"
+                >
+                  {deleteOfficer.isPending ? "Deleting…" : "Delete admin"}
                 </button>
               </DialogFooter>
             </DialogContent>
