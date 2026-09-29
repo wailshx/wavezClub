@@ -378,8 +378,12 @@ export const decideAdminRequestAction = createServerFn({ method: "POST" })
       if (existing?.id) {
         userId = existing.id;
       } else {
+        // /gestion is the sign-in form, which is useless to someone who has no
+        // password yet: Supabase does not render its own set-password screen,
+        // the app has to. The invite lands with a live session in the hash, so
+        // the recipient can choose a password and go straight to the console.
         const inviteResult = await admin.inviteUserByEmail(request.email, {
-          redirectTo: `${getBaseUrl()}/gestion`,
+          redirectTo: `${getBaseUrl()}/gestion/set-password`,
         });
         if (inviteResult.error) throw new Error(inviteResult.error.message);
 

@@ -198,6 +198,48 @@ throws (matching `sendResendEmail`) and the handler logs loudly and returns
 `ownerNotified: false`. Note that the /gestion form currently ignores that flag —
 a failed alert is visible only in server logs.
 
+## Invited officers set their own password
+
+Supabase does not render a set-password screen. An invite is a link to
+`/auth/v1/verify` that bounces to a `redirectTo` you choose, carrying a live
+session in the URL hash on the implicit flow this client uses. So the app has
+to supply that page: `src/routes/gestion/set-password.tsx` reads the hash
+(which GoTrue strips as soon as it exchanges it, so the raw value is captured
+during first render), waits for the session, and calls
+`supabase.auth.updateUser({ password })`. On success the officer is already
+signed in and goes straight to the console.
+
+`redirectTo` is set in **two** places, and they must agree:
+
+| Call site | Path |
+|---|---|
+| `decideAdminRequestAction` (emailed review link) | `src/lib/admin-gestion-api.ts` |
+| in-console Approve (Admins tab) | `src/lib/admin-admins-api.ts` |
+
+Both use the request's own host, so local invites point at localhost.
+
+**The dashboard allowlist is load-bearing and fails silently.** GoTrue only
+honours `redirectTo` when the origin+path matches an entry under
+Authentication → URL Configuration; otherwise it drops the redirect and falls
+back to the Site URL, and the recipient lands on the homepage with an
+`#error=access_denied` hash and no password screen. There is no error on the
+invite call itself. Required entries:
+
+- Site URL: `https://wavezclub.vercel.app`
+- Redirect URLs: `https://wavezclub.vercel.app/**` and
+  `https://wavezclub-wailshs-projects.vercel.app/**` (the auto-generated team
+  domain) plus `http://localhost:8081/**` for local testing.
+
+To check the allowlist without dashboard access, probe it — GoTrue redirects
+even a bogus token, so a rejected `redirect_to` is observable in the
+`Location` header:
+
+```sh
+curl -s -o /dev/null -D - "$SUPABASE_URL/auth/v1/verify?token=probe&type=invite&redirect_to=https://wavezclub.vercel.app/gestion" | grep -i location
+```
+
+A rejected value comes back as the bare Site URL.
+
 ## Admin Request Flow (Phase 1)
 
 ### Migration `drizzle/migrations/0002_admin_requests_and_roles.sql`

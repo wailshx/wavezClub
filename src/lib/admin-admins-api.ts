@@ -251,7 +251,11 @@ export const decideAdminRequest = createServerFn({ method: "POST" })
       const req = request2.getRequest();
       const proto = req?.headers.get("x-forwarded-proto") ?? "https";
       const host = req?.headers.get("x-forwarded-host") ?? req?.headers.get("host");
-      const redirectTo = host ? `${proto}://${host}/gestion` : undefined;
+      // Must match the token path in admin-gestion-api.ts. Supabase only uses
+      // redirectTo if the exact origin+path is in the dashboard's Redirect URL
+      // allowlist; otherwise the invite silently falls back to the Site URL,
+      // which drops the recipient on the homepage instead of this page.
+      const redirectTo = host ? `${proto}://${host}/gestion/set-password` : undefined;
 
       const invited = await admin.inviteUserByEmail(email, redirectTo ? { redirectTo } : {});
       if (invited.error) throw new Error(invited.error.message);
