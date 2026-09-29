@@ -15,6 +15,7 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as GestionIndexRouteImport } from './routes/gestion/index'
 import { Route as AuthenticatedGestionAdminRouteImport } from './routes/_authenticated/gestion.admin'
 import { Route as GestionReviewTokenRouteImport } from './routes/gestion/review.$token'
+import { Route as AuthenticatedGestionAdminSubmissionsCampaignIdRouteImport } from './routes/_authenticated/gestion.admin_.submissions.$campaignId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -46,6 +47,12 @@ const GestionReviewTokenRoute = GestionReviewTokenRouteImport.update({
   path: '/gestion/review/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedGestionAdminSubmissionsCampaignIdRoute =
+  AuthenticatedGestionAdminSubmissionsCampaignIdRouteImport.update({
+    id: '/gestion/admin_/submissions/$campaignId',
+    path: '/gestion/admin/submissions/$campaignId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -53,6 +60,7 @@ export interface FileRoutesByFullPath {
   '/gestion/': typeof GestionIndexRoute
   '/gestion/admin': typeof AuthenticatedGestionAdminRoute
   '/gestion/review/$token': typeof GestionReviewTokenRoute
+  '/gestion/admin/submissions/$campaignId': typeof AuthenticatedGestionAdminSubmissionsCampaignIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -60,6 +68,7 @@ export interface FileRoutesByTo {
   '/gestion': typeof GestionIndexRoute
   '/gestion/admin': typeof AuthenticatedGestionAdminRoute
   '/gestion/review/$token': typeof GestionReviewTokenRoute
+  '/gestion/admin/submissions/$campaignId': typeof AuthenticatedGestionAdminSubmissionsCampaignIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -69,13 +78,25 @@ export interface FileRoutesById {
   '/gestion/': typeof GestionIndexRoute
   '/_authenticated/gestion/admin': typeof AuthenticatedGestionAdminRoute
   '/gestion/review/$token': typeof GestionReviewTokenRoute
+  '/_authenticated/gestion/admin_/submissions/$campaignId': typeof AuthenticatedGestionAdminSubmissionsCampaignIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/about' | '/gestion/' | '/gestion/admin' | '/gestion/review/$token'
+    | '/'
+    | '/about'
+    | '/gestion/'
+    | '/gestion/admin'
+    | '/gestion/review/$token'
+    | '/gestion/admin/submissions/$campaignId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/gestion' | '/gestion/admin' | '/gestion/review/$token'
+  to:
+    | '/'
+    | '/about'
+    | '/gestion'
+    | '/gestion/admin'
+    | '/gestion/review/$token'
+    | '/gestion/admin/submissions/$campaignId'
   id:
     | '__root__'
     | '/'
@@ -84,6 +105,7 @@ export interface FileRouteTypes {
     | '/gestion/'
     | '/_authenticated/gestion/admin'
     | '/gestion/review/$token'
+    | '/_authenticated/gestion/admin_/submissions/$campaignId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -138,15 +160,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GestionReviewTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/gestion/admin_/submissions/$campaignId': {
+      id: '/_authenticated/gestion/admin_/submissions/$campaignId'
+      path: '/gestion/admin/submissions/$campaignId'
+      fullPath: '/gestion/admin/submissions/$campaignId'
+      preLoaderRoute: typeof AuthenticatedGestionAdminSubmissionsCampaignIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedGestionAdminRoute: typeof AuthenticatedGestionAdminRoute
+  AuthenticatedGestionAdminSubmissionsCampaignIdRoute: typeof AuthenticatedGestionAdminSubmissionsCampaignIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedGestionAdminRoute: AuthenticatedGestionAdminRoute,
+  AuthenticatedGestionAdminSubmissionsCampaignIdRoute:
+    AuthenticatedGestionAdminSubmissionsCampaignIdRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

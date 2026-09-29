@@ -598,7 +598,8 @@ function RegistrationTable({
               return (
                 <Fragment key={registration.id}>
                   <tr
-                    className={`hover:bg-white/[0.03] ${
+                    onClick={() => toggle(registration.id)}
+                    className={`cursor-pointer hover:bg-white/[0.03] ${
                       registration.status !== "pending"
                         ? "bg-black/10 opacity-70"
                         : registration.checked_in
@@ -611,7 +612,10 @@ function RegistrationTable({
                         type="button"
                         aria-expanded={isOpen}
                         aria-label={`${isOpen ? "Hide" : "Show"} details for ${name}`}
-                        onClick={() => toggle(registration.id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggle(registration.id);
+                        }}
                         className="flex w-full items-center gap-3 text-left"
                       >
                         <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-[#2e6bff]/40 bg-[#2e6bff]/15 text-[11px] font-extrabold text-[#6fa0ff]">
@@ -623,6 +627,9 @@ function RegistrationTable({
                           </span>
                           <span className="block truncate text-xs text-[#94a3c8]">
                             {registration.email}
+                          </span>
+                          <span className="block truncate text-xs text-[#64748b]">
+                            {registration.phone}
                           </span>
                         </span>
                         <DiscloseIcon open={isOpen} />
@@ -649,7 +656,7 @@ function RegistrationTable({
                     <td className="hidden px-4 py-3 whitespace-nowrap text-[#94a3c8] xl:table-cell">
                       {new Date(registration.created_at).toLocaleDateString("en-GB")}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
                       <div className="flex flex-wrap justify-end gap-1.5">
                         {actionsFor(registration)}
                       </div>
@@ -792,7 +799,14 @@ function moveItem<T>(items: T[], index: number, delta: -1 | 1): T[] {
  * submission — so this hangs off the announcement in the Submissions tab and
  * owns only the query and the three mutations, with no campaign list above it.
  */
-export function CampaignSubmissions({ campaign }: { campaign: AdminCampaign }) {
+export function CampaignSubmissions({
+  campaign,
+  inline = true,
+}: {
+  campaign: AdminCampaign;
+  /** False when this is the campaign's own page rather than a panel in the console. */
+  inline?: boolean;
+}) {
   const queryClient = useQueryClient();
   const [acceptTarget, setAcceptTarget] = useState<AdminRegistration | null>(null);
   const [removeTarget, setRemoveTarget] = useState<AdminRegistration | null>(null);
@@ -853,7 +867,7 @@ export function CampaignSubmissions({ campaign }: { campaign: AdminCampaign }) {
   const modalRoot = typeof document !== "undefined" ? document.body : null;
 
   return (
-    <div className="mt-4 border-t border-white/10 pt-4">
+    <div className={inline ? "mt-4 border-t border-white/10 pt-4" : undefined}>
       <RegistrationsView
         campaign={campaign}
         registrations={registrations}

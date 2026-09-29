@@ -58,7 +58,8 @@ filtered client-side and a stale tab can still submit a mismatch.
 | Public card (Submit button + form disclosure live here) | `src/components/submission-announcement-card.tsx` |
 | Both student forms (extracted from the deleted `/register` route) | `src/components/submission-application-form.tsx` |
 | Public feed (announcements only) | `src/routes/index.tsx` → section `#submissions` |
-| Admin: form, announcement list, submissions inbox | `src/routes/_authenticated/gestion.admin.tsx` → tab `events` (labelled **Submissions**) |
+| Admin: announcement form + list (each card links to its submissions) | `src/routes/_authenticated/gestion.admin.tsx` → tab `events` (labelled **Submissions**) |
+| Admin: the submissions review page, one per campaign | `src/routes/_authenticated/gestion.admin_.submissions.$campaignId.tsx` → `/gestion/admin/submissions/$campaignId` |
 | Admin: questions editor, submissions review, check-in | `src/components/admin-submissions.tsx` |
 | Server functions | `src/lib/admin-api.ts` → `listPosts` / `savePost` / `deletePost` |
 
@@ -104,6 +105,30 @@ stays in `ADMIN_SECTIONS` so pre-merge grants keep working.
 **Operational consequence:** a campaign is only reachable if some published
 announcement links to it. Opening a campaign without publishing an announcement
 for it leaves it invisible to students.
+
+### The submissions page is its own route
+
+`/gestion/admin/submissions/$campaignId` is **not** nested under the console. The
+file is named `gestion.admin_.submissions.$campaignId.tsx` — the trailing
+underscore on the `admin_` segment is TanStack Router's opt-out, so the page owns
+its whole layout instead of needing an `<Outlet>` inside an already 4,000-line
+console. Its file-based id is `/_authenticated/gestion/admin_/submissions/$campaignId`;
+the URL is `/gestion/admin/submissions/$campaignId`.
+
+It reuses the `admin-campaigns` query and the `CampaignSubmissions` component, so
+submission counts cannot disagree with the announcement list. `inline={false}`
+drops the border the console layout needed. The server function enforces the
+Submissions permission, so reaching the URL is not the gate.
+
+The console route gained `validateSearch` for an optional `?tab=`, so the page's
+"Announcements" breadcrumb lands back on the Submissions tab. It returns `{}`
+rather than `{ tab: undefined }` on purpose — that keeps the parameter optional
+and every existing `<Link to="/gestion/admin">` compiling.
+
+The table's whole row is the click target for the detail view, with a real
+`<button>` in the Student cell for keyboard and screen readers. Both it and the
+actions cell call `stopPropagation`, so one click is one toggle and acting on a
+student does not also expand them.
 
 ## Verification
 

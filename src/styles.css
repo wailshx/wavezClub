@@ -557,36 +557,98 @@ body:has(.admin-theme) {
 /*
  * ============================================================
  * Public site — "Leadership Team — 2026/2027" carousel
- * Frosted-glass cards (light theme), seamless auto-scroll marquee.
+ * One officer at a time on phones, three on wide screens. Embla drives the
+ * track, so touch and mouse drag come from the library rather than from
+ * hand-rolled pointer maths.
  * ============================================================
  */
 
-.leaders-marquee {
+.leaders-carousel {
   position: relative;
+}
+
+/* Embla measures this element; it must not be padded, or the slides it
+   reports back would be wider than what is actually visible. */
+.leaders-viewport {
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
 }
 
-.leaders-rail {
+.leaders-track {
   display: flex;
-  width: max-content;
-  animation: leaders-scroll 54s linear infinite;
-  will-change: transform;
+  margin-left: -1.5rem;
+  /* touch-action is what turns a horizontal drag into a swipe instead of a
+     page scroll. Embla sets it too, but stating it keeps the behaviour
+     independent of library internals. */
+  touch-action: pan-y pinch-zoom;
 }
 
-.leaders-marquee:hover .leaders-rail,
-.leaders-marquee:focus-within .leaders-rail,
-.leaders-marquee.is-paused .leaders-rail {
-  animation-play-state: paused;
-}
-
-/* Two identical groups inside the rail make the -50% loop seamless. */
-.leaders-group {
+.leaders-slide {
+  flex: 0 0 100%;
+  min-width: 0;
+  padding-left: 1.5rem;
   display: flex;
-  align-items: stretch;
-  gap: 4.5rem;
-  padding-right: 4.5rem;
+  justify-content: center;
+}
+
+@media (min-width: 640px) {
+  .leaders-slide {
+    flex-basis: 50%;
+  }
+}
+
+/* Three-across only on very wide screens. The club has three officers, so
+   three-across at an ordinary desktop width would fill the track exactly:
+   embla would report a single snap, and with nothing to snap to the carousel
+   would be a static grid — no autoplay, no dots, no swipe. Two-across keeps it
+   a carousel everywhere until the team is large enough for three to fit. */
+@media (min-width: 1536px) {
+  .leaders-slide {
+    flex-basis: 33.3333%;
+  }
+}
+
+/* Dots double as the position indicator and the autoplay timer: the active one
+   fills over exactly one autoplay interval, so the slide that is about to
+   change is visible before it does. */
+.leaders-dots {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 2.5rem;
+}
+
+.leaders-dot {
+  position: relative;
+  height: 0.375rem;
+  width: 1.5rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: color-mix(in oklab, currentColor 22%, transparent);
+  transition:
+    width 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.3s ease;
+}
+
+.leaders-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--brand);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+.leaders-dot:hover {
+  width: 2.25rem;
+}
+
+.leaders-dot[data-active] {
+  width: 2.75rem;
+}
+
+.leaders-dot[data-active]::after {
+  animation: leader-dot-fill 4.5s linear forwards;
 }
 
 /* Open leader unit — no card shell. Circular photo carries the visual weight
@@ -596,59 +658,66 @@ body:has(.admin-theme) {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  width: 19rem;
-  max-width: 80vw;
-  flex-shrink: 0;
+  width: 100%;
+  max-width: 22rem;
+  margin: 0 auto;
 }
 
 .leader-photo {
-  width: 16rem;
-  height: 16rem;
+  width: 15rem;
+  height: 15rem;
   border-radius: 9999px;
   overflow: hidden;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0));
   box-shadow:
-    0 24px 60px -24px rgba(37, 99, 235, 0.5),
+    0 28px 70px -26px rgba(37, 99, 235, 0.55),
     0 0 0 1px rgba(37, 99, 235, 0.12);
   transition:
-    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-    box-shadow 0.3s ease;
+    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.4s ease;
 }
 
 .leader-unit:hover .leader-photo {
-  transform: translateY(-4px);
+  transform: translateY(-6px) scale(1.02);
   box-shadow:
-    0 30px 70px -24px rgba(37, 99, 235, 0.6),
-    0 0 0 1px rgba(37, 99, 235, 0.22);
+    0 36px 84px -26px rgba(37, 99, 235, 0.62),
+    0 0 0 1px rgba(37, 99, 235, 0.24);
 }
 
-@media (min-width: 768px) {
+@media (min-width: 640px) {
   .leader-photo {
-    width: 18rem;
-    height: 18rem;
+    width: 17rem;
+    height: 17rem;
   }
 }
 
-/* Reduced-motion / fallback: static wrapped row, no auto-scroll. */
-.leaders-static {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 4.5rem;
+@media (min-width: 1024px) {
+  .leader-photo {
+    width: 19rem;
+    height: 19rem;
+  }
 }
 
-@keyframes leaders-scroll {
+@keyframes leader-dot-fill {
   from {
-    transform: translateX(0);
+    transform: scaleX(0);
   }
   to {
-    transform: translateX(-50%);
+    transform: scaleX(1);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .leaders-rail {
+  /* The fill would be the only moving thing left, so it just stays put. */
+  .leaders-dot[data-active]::after {
     animation: none;
+    transform: scaleX(1);
+  }
+
+  .leader-photo,
+  .leader-unit:hover .leader-photo,
+  .leaders-dot {
+    transition: none;
   }
 
   .dash-rise {

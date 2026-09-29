@@ -28,8 +28,6 @@ import {
   Ban,
   CalendarDays,
   Check,
-  ChevronDown,
-  ChevronLeft,
   ClipboardList,
   Download,
   ExternalLink,
@@ -119,7 +117,7 @@ import {
   type AdminCampaign,
   type AdminRegistration,
 } from "@/lib/admin-registrations-api";
-import { CampaignSubmissions, CustomQuestionsEditor } from "@/components/admin-submissions";
+import { CustomQuestionsEditor } from "@/components/admin-submissions";
 import {
   ANNOUNCEMENT_KIND,
   CAMPAIGN_KIND_FOR_SUBMISSION,
@@ -151,7 +149,31 @@ import {
   type DashboardStats,
 } from "@/lib/admin-dashboard-api";
 
+const ADMIN_TAB_KEYS = [
+  "dashboard",
+  "members",
+  "events",
+  "email",
+  "leaders",
+  "team",
+  "registrations",
+  "admins",
+] as const;
+type AdminTab = (typeof ADMIN_TAB_KEYS)[number];
+
 export const Route = createFileRoute("/_authenticated/gestion/admin")({
+  // The console used to be one page you could not link into. The submissions
+  // page sends officers back here, and landing on the Dashboard would hide
+  // where they just were.
+  validateSearch: (search: Record<string, unknown>) => {
+    // Returning `{}` rather than `{ tab: undefined }` keeps the parameter
+    // optional, so every existing <Link to="/gestion/admin"> still compiles.
+    const tab = search["tab"];
+    if (typeof tab === "string" && ADMIN_TAB_KEYS.includes(tab as AdminTab)) {
+      return { tab: tab as AdminTab };
+    }
+    return {};
+  },
   head: () => ({
     meta: [
       { title: "Member console — Wavez Club" },
@@ -708,11 +730,7 @@ function AdminPage() {
   const [manageId, setManageId] = useState<string | null>(null);
   const [removeConfirm, setRemoveConfirm] = useState<Member | null>(null);
   const [postDraft, setPostDraft] = useState<Post | null>(null);
-  /** Which announcement's submissions inbox is expanded, if any. */
-  const [inboxPostId, setInboxPostId] = useState<string | null>(null);
-  const [tab, setTab] = useState<
-    "dashboard" | "members" | "events" | "email" | "leaders" | "team" | "registrations" | "admins"
-  >("dashboard");
+  const [tab, setTab] = useState<AdminTab>(Route.useSearch().tab ?? "dashboard");
   const [blockTarget, setBlockTarget] = useState<Member | null>(null);
   const [blockOption, setBlockOption] = useState<BlockOption>("1w");
   const [customUntil, setCustomUntil] = useState("");
@@ -2928,7 +2946,6 @@ function AdminPage() {
                         const campaign = post.campaign_id
                           ? campaignById.get(post.campaign_id)
                           : undefined;
-                        const open = Boolean(campaign) && inboxPostId === post.id;
                         return (
                           <>
                             <div className="mt-4 flex flex-wrap gap-2">
@@ -2939,26 +2956,19 @@ function AdminPage() {
                                 <Pencil className="size-3.5" /> Edit
                               </button>
                               {campaign && (
-                                <button
-                                  onClick={() => setInboxPostId(open ? null : post.id)}
-                                  aria-expanded={open}
+                                <Link
+                                  to="/gestion/admin/submissions/$campaignId"
+                                  params={{ campaignId: campaign.id }}
                                   title={
                                     campaign.is_open
                                       ? "Review the students who submitted"
                                       : "This registration is closed — you can still review it"
                                   }
-                                  className={`clay-sm inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
-                                    open
-                                      ? "bg-[#2e6bff]/30 text-[#a5c3ff]"
-                                      : "bg-[#2e6bff]/15 text-[#6fa0ff] hover:bg-[#2e6bff]/25"
-                                  }`}
+                                  className="clay-sm inline-flex items-center gap-1.5 rounded-lg bg-[#2e6bff]/15 px-3 py-1.5 text-xs font-bold text-[#6fa0ff] transition-colors hover:bg-[#2e6bff]/25"
                                 >
                                   <Users className="size-3.5" />
                                   Submissions · {campaign.submission_count}
-                                  <ChevronDown
-                                    className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
-                                  />
-                                </button>
+                                </Link>
                               )}
                               <button
                                 onClick={() => {
@@ -2971,16 +2981,12 @@ function AdminPage() {
                               </button>
                             </div>
 
-                            {campaign ? (
-                              <>
-                                {campaign.is_open && (
-                                  <p className="mt-3 text-[11px] font-semibold text-[#6ee7b7]">
-                                    Accepting applications
-                                  </p>
-                                )}
-                                {open && <CampaignSubmissions campaign={campaign} />}
-                              </>
-                            ) : (
+                            {campaign?.is_open && (
+                              <p className="mt-3 text-[11px] font-semibold text-[#6ee7b7]">
+                                Accepting applications
+                              </p>
+                            )}
+                            {!campaign && (
                               <p className="mt-3 border-t border-white/10 pt-3 text-xs font-semibold text-[#fcd34d]">
                                 No application form yet — save this announcement to create one, or
                                 attach an existing registration above.
