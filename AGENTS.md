@@ -11,7 +11,7 @@
 
 **Supabase CLI mirror:** the same SQL files are copied to `supabase/migrations/` so `supabase db push` / diff tooling can target the correct project (`supabase/config.toml` → `pnqdtozfqzvybewuabwc`, matching `.env`).
 
-Until the Supabase CLI is linked to this project (`supabase link --project-ref pnqdtozfqzvybewuabwc`), apply new migrations **manually** via the [Supabase Dashboard SQL Editor](https://supabase.com/dashboard/project/pnqdtozfqzvybewuabwc/sql/new) — paste each file in journal order (`0000` … `0019`). After editing a migration in `drizzle/migrations/`, re-copy it to `supabase/migrations/` before applying.
+Until the Supabase CLI is linked to this project (`supabase link --project-ref pnqdtozfqzvybewuabwc`), apply new migrations **manually** via the [Supabase Dashboard SQL Editor](https://supabase.com/dashboard/project/pnqdtozfqzvybewuabwc/sql/new) — paste each file in journal order (`0000` … `0020`). After editing a migration in `drizzle/migrations/`, re-copy it to `supabase/migrations/` before applying.
 
 | Migration | Purpose |
 |---|---|
@@ -24,6 +24,7 @@ Until the Supabase CLI is linked to this project (`supabase link --project-ref p
 | `0016_submission_announcements.sql` | Retires the `event`/`news` announcement kinds — `post_kind` is rebuilt as `('registration')`; adds `posts.submission_type`, `posts.subtitle`, `posts.is_pinned`; refreshes the `get_dashboard_stats` announcement series |
 | `0018_members_unique_email.sql` | Unique index on `lower(members.email)`. Accepting a submission writes a `members` row and the same person can apply to an open day *and* an event; without the constraint both accepts succeed. The migration refuses to run and lists the conflicting rows rather than deduping |
 | `0019_remap_faculty_fields.sql` | Remaps the pre-faculty `department`/`speciality` strings onto the current `DEPARTMENTS`/`SPECIALITIES` lists in `src/lib/club.ts`. Needed because those are plain `text` with no CHECK constraint: a `<select>` whose stored value is not among its options submits the first option, so editing a member would have silently rewritten their department. Trailing `SELECT`s report anything left outside the lists instead of guessing |
+| `0020_close_members_public_insert.sql` | Drops `"anyone can apply"` on `members` (from `0000`, for the deleted public join form) and replaces it with an admin-only INSERT policy. **Dropping it alone would break `acceptRegistration`** — server functions use the caller's JWT with the publishable key, not the service-role key, so RLS *is* enforced on that insert and the loose policy was the only thing allowing it. Also revokes anon `INSERT` on the table. The trailing `SELECT` lists the surviving policies |
 | `0017_post_campaign_link.sql` | Adds `posts.campaign_id` → `registration_campaigns(id) ON DELETE SET NULL` + index. The announcement *is* the registration entry point, so each one points at the single campaign it announces |
 
 ### Announcements = submissions only

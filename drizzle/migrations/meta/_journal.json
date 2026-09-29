@@ -141,6 +141,13 @@
       "when": 1790800000000,
       "tag": "0019_remap_faculty_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790900000000,
+      "tag": "0020_close_members_public_insert",
+      "breakpoints": true
     }
   ]
 }
