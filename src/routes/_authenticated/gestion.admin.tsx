@@ -138,6 +138,7 @@ import {
   decideAdminRequest,
   deleteAdmin,
   deleteAdminRequest,
+  resendAdminInvite,
   setAdminDisabled,
   setAdminSectionAllowed,
   updateAdminProfile,
@@ -1152,6 +1153,34 @@ function AdminPage() {
     onError: (err) =>
       toast.error(err instanceof Error ? err.message : "Could not update this admin"),
   });
+
+  const [inviteLink, setInviteLink] = useState<{ email: string; link: string } | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+
+  const sendInvite = useMutation({
+    mutationFn: (input: { adminId: string }) => resendAdminInvite({ data: input }),
+    onSuccess: (res) => {
+      setInviteLink({ email: res.email, link: res.setPasswordLink });
+      toast.success(
+        res.emailSent
+          ? `Invite link emailed to ${res.email}`
+          : `Email failed — copy the link and send it to ${res.email}`,
+      );
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Could not create an invite link"),
+  });
+
+  async function copyInvite() {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink.link);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 2500);
+    } catch {
+      setInviteCopied(false);
+    }
+  }
 
   const deleteOfficer = useMutation({
     mutationFn: (input: { adminId: string }) => deleteAdmin({ data: input }),
@@ -3974,6 +4003,15 @@ function AdminPage() {
                       <Trash2 className="size-4" /> Revoke admin access
                     </PanelAction>
                   )}
+                  {canManageAdmins && managedAdmin.user_id !== session?.email && (
+                    <PanelAction
+                      onClick={() => sendInvite.mutate({ adminId: managedAdmin.user_id })}
+                      className="border-[#2e6bff]/40 bg-[#2e6bff]/15 text-[#a5c3ff] hover:bg-[#2e6bff]/30"
+                    >
+                      <Send className="size-4" />
+                      {sendInvite.isPending ? "Creating link…" : "Send / resend invite link"}
+                    </PanelAction>
+                  )}
                   {canManageAdmins && !isOwnerRowEmail(managedAdmin.email) && (
                     <PanelAction
                       onClick={() => setDeleteTarget(managedAdmin)}
@@ -3991,6 +4029,38 @@ function AdminPage() {
               </div>
             </aside>
           </>
+        )}
+
+        {inviteLink && (
+          <div className="fixed bottom-6 left-1/2 z-[60] w-[calc(100%-3rem)] max-w-xl -translate-x-1/2 rounded-3xl border border-[#2e6bff]/40 bg-[#0a1226] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-extrabold text-white">
+                  Set-password link for {inviteLink.email}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-[#94a3c8]">
+                  Email is not delivering yet. Copy this and send it to them over Telegram,
+                  WhatsApp, or in person. It works once.
+                </p>
+              </div>
+              <button
+                onClick={() => setInviteLink(null)}
+                aria-label="Dismiss invite link"
+                className="rounded-xl border border-white/10 bg-white/5 p-2 text-[#94a3c8] transition-colors hover:text-white"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <code className="mt-3 block max-h-24 overflow-y-auto break-all rounded-2xl border border-white/10 bg-black/30 p-3 text-[11px] font-semibold text-[#a5c3ff]">
+              {inviteLink.link}
+            </code>
+            <button
+              onClick={() => void copyInvite()}
+              className="clay-sm mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#2e6bff]/30 px-3 py-2 text-xs font-bold text-[#a5c3ff] transition-colors hover:bg-[#2e6bff]/45"
+            >
+              {inviteCopied ? "Copied" : "Copy link"}
+            </button>
+          </div>
         )}
 
         {editing && (

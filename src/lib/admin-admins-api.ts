@@ -599,3 +599,62 @@ export const deleteAdmin = createServerFn({ method: "POST" })
 
     return true;
   });
+
+/**
+ * Owner/president: (re)send the set-password link to an already-approved officer.
+ *
+ * Not a convenience. The original link is single-use, so the first misdelivery
+ * or stray click spends it, and the officer is left with an account and no way
+ * in — with no approval left to replay. This is the only way to hand them a new
+ * one, and it reports whether the mail actually went out rather than assuming.
+ */
+export const resendAdminInvite = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: { adminId: string }) => ({ adminId: input.adminId }))
+  .handler(async ({ context, data: { adminId } }) => {
+    await requireAdminManager(context);
+    await assertNotOwnerRow(adminId);
+
+    const supabaseAdmin = await getSupabaseAdmin();
+    const { data: roleRows, error: roleError } = await userRolesTable(supabaseAdmin)
+      .select("user_id, display_name")
+      .eq("user_id", adminId)
+      .eq("role", "admin");
+    if (roleError) throw new Error(roleError.message);
+    const role = (roleRows ?? [])[0] as Pick<UserRoleRow, "display_name"> | undefined;
+    if (!role) throw new Error("That account isn't an admin.");
+
+    const { data: target, error: targetError } =
+      await supabaseAdmin.auth.admin.getUserById(adminId);
+    if (targetError) throw new Error(targetError.message);
+    const email = (target?.user?.email ?? "").toLowerCase();
+    if (!email) throw new Error("That account has no email address.");
+
+    const [{ buildSetPasswordLink, sendSetPasswordInvite }, { resolveAppOrigin }] =
+      await Promise.all([
+        import("@/lib/admin-invite-link.server"),
+        import("@/lib/app-origin.server"),
+      ]);
+
+    const built = await buildSetPasswordLink(
+      supabaseAdmin.auth.admin,
+      email,
+      `${await resolveAppOrigin()}/gestion/set-password`,
+    );
+    if ("error" in built) throw new Error(`Could not create the link: ${built.error}`);
+
+    const sent = await sendSetPasswordInvite({
+      to: email,
+      name: role.display_name,
+      link: built.link,
+    });
+
+    return {
+      ok: true as const,
+      email,
+      emailSent: sent.ok,
+      emailError: sent.ok ? undefined : sent.error,
+      // Handed back so the owner can copy it when mail is undeliverable.
+      setPasswordLink: built.link,
+    };
+  });

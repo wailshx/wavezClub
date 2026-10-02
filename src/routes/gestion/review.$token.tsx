@@ -53,6 +53,8 @@ function ReviewPage() {
     email: string;
     emailSent?: boolean;
     emailError?: string;
+    /** Single-use link, shown so the owner can pass it on when mail fails. */
+    setPasswordLink?: string;
   } | null>(null);
 
   async function loadRequest(showLoading = true) {
@@ -83,12 +85,28 @@ function ReviewPage() {
         email: res.email,
         ...("emailSent" in res ? { emailSent: res.emailSent } : {}),
         ...("emailError" in res && res.emailError ? { emailError: res.emailError } : {}),
+        ...("setPasswordLink" in res && res.setPasswordLink
+          ? { setPasswordLink: res.setPasswordLink }
+          : {}),
       });
       setConfirming(null);
     } catch {
       setBusy(false);
       setConfirming(null);
       await loadRequest(false);
+    }
+  }
+
+  const [copied, setCopied] = useState(false);
+
+  async function copyInviteLink() {
+    if (!result?.setPasswordLink) return;
+    try {
+      await navigator.clipboard.writeText(result.setPasswordLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setCopied(false);
     }
   }
 
@@ -227,10 +245,28 @@ function ReviewPage() {
               {result?.emailSent === false && (
                 <p className="mt-2 rounded-xl border border-[#f59e0b]/30 bg-[#f59e0b]/15 p-3 text-xs font-bold text-[#fcd34d]">
                   {result.action === "accept"
-                    ? "The officer is approved and their account exists, but the set-password email was NOT delivered — they cannot sign in until they receive it. Open the console and send them the link by hand."
+                    ? "The officer is approved and their account exists, but the email was NOT delivered — they cannot sign in until they get the link. Copy it below and send it to them over Telegram, WhatsApp, or in person. It works once."
                     : "The decision was saved, but the rejection email was not delivered, so this applicant has NOT been told. Send it by hand."}
                   {result.emailError ? ` (${result.emailError})` : ""}
                 </p>
+              )}
+              {result?.setPasswordLink && (
+                <div className="mt-3 rounded-xl border border-[#2e6bff]/30 bg-[#2e6bff]/10 p-3">
+                  <p className="text-xs font-bold text-white">
+                    {result.emailSent === false
+                      ? "Set-password link — send this to the officer"
+                      : "Set-password link (already emailed; single-use)"}
+                  </p>
+                  <code className="mt-1.5 block break-all text-[11px] font-semibold text-[#a5c3ff]">
+                    {result.setPasswordLink}
+                  </code>
+                  <button
+                    onClick={() => void copyInviteLink()}
+                    className="clay-sm mt-2.5 inline-flex items-center gap-1.5 rounded-lg bg-[#2e6bff]/30 px-3 py-2 text-xs font-bold text-[#a5c3ff] transition-colors hover:bg-[#2e6bff]/45"
+                  >
+                    {copied ? "Copied" : "Copy link"}
+                  </button>
+                </div>
               )}
               <p className="mt-2 text-xs font-semibold opacity-80">
                 This request has already been decided and can no longer be changed.

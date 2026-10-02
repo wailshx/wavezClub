@@ -157,6 +157,7 @@ npm run build
 | `SUPABASE_PUBLISHABLE_KEY` / `VITE_SUPABASE_PUBLISHABLE_KEY` | Anon/publishable key |
 | `OWNER_EMAIL` / `VITE_OWNER_EMAIL` | `wailkr68@gmail.com` — trusted club owner |
 | `CLUB_EMAIL` | `wavezclub22@gmail.com` — club's public mailbox. Used as the Resend `replyTo` and as the `From` once it points at a verified-domain address (Resend cannot send *from* gmail.com) |
+| `CLUB_REPLY_TO` | Optional. Where replies to club mail land, when `From` is a no-reply address on a verified domain. Defaults to `CLUB_EMAIL`. Not set, and not needed, until a Resend domain is verified |
 
 ### Must be set in Lovable production env (NOT committed)
 

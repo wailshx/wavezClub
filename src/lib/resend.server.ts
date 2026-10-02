@@ -44,16 +44,20 @@ export function getClubEmail(): string | null {
 function resolveClubSender(): { from: string; replyTo: string | undefined } {
   const club = getClubEmail();
   const genericFrom = process.env["RESEND_FROM"] ?? "onboarding@resend.dev";
-  if (!club) return { from: genericFrom, replyTo: undefined };
+  // A verified-domain sender is usually a no-reply address, and replies to one
+  // bounce. `CLUB_REPLY_TO` lets the sender stay on the domain while replies
+  // land in a mailbox someone actually reads; it defaults to CLUB_EMAIL.
+  const replyTo = (process.env["CLUB_REPLY_TO"] ?? club ?? "").trim() || undefined;
+  if (!club) return { from: genericFrom, replyTo };
   if (!CONSUMER_MAIL_DOMAINS.test(club)) {
-    return { from: `Wavez Club <${club}>`, replyTo: club };
+    return { from: `Wavez Club <${club}>`, replyTo };
   }
   console.warn(
     `[resend] CLUB_EMAIL="${club}" is a consumer mailbox Resend cannot send from ` +
-      `(verified-domain addresses only). Using replyTo="${club}" and From="${genericFrom}". ` +
+      `(verified-domain addresses only). Using replyTo="${replyTo}" and From="${genericFrom}". ` +
       `Point CLUB_EMAIL at a verified-domain address (e.g. no-reply@wavez.club) to send as the club.`,
   );
-  return { from: genericFrom, replyTo: club };
+  return { from: genericFrom, replyTo };
 }
 
 type SendOptions = {
