@@ -6,6 +6,7 @@ import {
   useRouter,
   HeadContent,
   Scripts,
+  type ErrorComponentProps,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
@@ -35,7 +36,10 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+// Typed from the router rather than restating `{ error: Error; reset }`: 1.170.41
+// widened `error` to `unknown`, and a hand-written signature is exactly the kind
+// of assertion that goes stale on the next bump.
+function ErrorComponent({ error, reset }: ErrorComponentProps) {
   console.error(error);
   const router = useRouter();
 
