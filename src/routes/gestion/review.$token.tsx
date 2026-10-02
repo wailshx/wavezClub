@@ -212,18 +212,23 @@ function ReviewPage() {
                   : "border-[#34d399]/25 bg-[#34d399]/15 text-[#6ee7b7]"
               }`}
             >
-              {(result?.action ?? request.status) === "accept" ||
-              (result?.action ?? request.status) === "approved"
-                ? `Approved — invite sent to ${result?.email ?? request.email}`
-                : result === null
-                  ? `Rejected — this request for ${request.email} was already decided`
+              {result === null
+                ? `This request for ${request.email} was already decided.`
+                : result.action === "accept"
+                  ? // Only claim delivery when this response actually reports
+                    // it. On a reload there is no such record, so the copy
+                    // stays quiet rather than asserting something unverified.
+                    result.emailSent === false
+                    ? `Approved — but the invite was NOT sent to ${result.email}`
+                    : `Approved — invite sent to ${result.email}`
                   : result.emailSent === false
                     ? `Rejected — the email to ${result.email} could NOT be sent`
                     : `Rejected — ${result.email} has been notified`}
               {result?.emailSent === false && (
                 <p className="mt-2 rounded-xl border border-[#f59e0b]/30 bg-[#f59e0b]/15 p-3 text-xs font-bold text-[#fcd34d]">
-                  The decision was saved, but the rejection email was not delivered, so this
-                  applicant has NOT been told. Send it by hand.
+                  {result.action === "accept"
+                    ? "The officer is approved and their account exists, but the set-password email was NOT delivered — they cannot sign in until they receive it. Open the console and send them the link by hand."
+                    : "The decision was saved, but the rejection email was not delivered, so this applicant has NOT been told. Send it by hand."}
                   {result.emailError ? ` (${result.emailError})` : ""}
                 </p>
               )}

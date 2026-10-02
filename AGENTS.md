@@ -230,6 +230,20 @@ invite call itself. Required entries:
   `https://wavezclub-wailshs-projects.vercel.app/**` (the auto-generated team
   domain) plus `http://localhost:8081/**` for local testing.
 
+**Verified 2026-10-02: this list was wrong.** The probe showed the Site URL was
+still `https://wavezclub-wailshs-projects.vercel.app` and that
+`https://wavezclub.vercel.app/**` was *not* on the allowlist — that origin was
+silently replaced by the Site URL. Any invite or set-password link built on the
+brand domain therefore spent its single-use token and dropped the officer on the
+team-domain homepage instead of the password page. Re-probe after any dashboard
+change; do not trust this list.
+
+`redirectTo` must therefore never be built from the request's `Host` header:
+the review link is opened from a phone over Telegram, so the host depends on
+which URL was tapped. `CANONICAL_ORIGIN` in `src/lib/app-origin.server.ts` is
+the single source for both call sites, and localhost is honoured only for local
+dev.
+
 To check the allowlist without dashboard access, probe it — GoTrue redirects
 even a bogus token, so a rejected `redirect_to` is observable in the
 `Location` header:

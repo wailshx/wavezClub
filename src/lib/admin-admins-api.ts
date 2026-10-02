@@ -253,17 +253,16 @@ export const decideAdminRequest = createServerFn({ method: "POST" })
     )?.id;
 
     if (!userId) {
-      const request2 = await import("@tanstack/react-start/server");
-      const req = request2.getRequest();
-      const proto = req?.headers.get("x-forwarded-proto") ?? "https";
-      const host = req?.headers.get("x-forwarded-host") ?? req?.headers.get("host");
-      // Must match the token path in admin-gestion-api.ts. Supabase only uses
-      // redirectTo if the exact origin+path is in the dashboard's Redirect URL
-      // allowlist; otherwise the invite silently falls back to the Site URL,
-      // which drops the recipient on the homepage instead of this page.
-      const redirectTo = host ? `${proto}://${host}/gestion/set-password` : undefined;
+      // Must match the token path in admin-gestion-api.ts, and it must be the
+      // canonical origin rather than whatever host this request arrived on:
+      // Supabase only uses redirectTo if the origin+path is on the dashboard's
+      // Redirect URL allowlist, and otherwise silently falls back to the Site
+      // URL — which lands the officer on the homepage having already spent the
+      // single-use token, with no password screen to reach.
+      const { resolveAppOrigin } = await import("@/lib/app-origin.server");
+      const redirectTo = `${await resolveAppOrigin()}/gestion/set-password`;
 
-      const invited = await admin.inviteUserByEmail(email, redirectTo ? { redirectTo } : {});
+      const invited = await admin.inviteUserByEmail(email, { redirectTo });
       if (invited.error) throw new Error(invited.error.message);
 
       const { data: afterInvite } = await admin.listUsers({ perPage: 1000 });

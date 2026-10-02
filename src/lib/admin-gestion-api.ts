@@ -1,5 +1,4 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
@@ -173,16 +172,44 @@ export async function verifyReviewToken(
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getBaseUrl(): string {
-  const request = getRequest();
-  if (!request) return "http://localhost:8081";
-  const proto = request.headers.get("x-forwarded-proto") ?? "https";
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  return host ? `${proto}://${host}` : "http://localhost:8081";
+/**
+ * The origin every link we hand to Supabase is built from.
+ *
+ * Deliberately not the request host: see `app-origin.server.ts` for why an
+ * off-allowlist origin costs the applicant their single-use token.
+ */
+async function getBaseUrl(): Promise<string> {
+  const { resolveAppOrigin } = await import("@/lib/app-origin.server");
+  return resolveAppOrigin();
 }
 
 async function authAdmin(supabaseAdmin: SupabaseClient): Promise<AuthAdminApi> {
   return supabaseAdmin.auth.admin;
+}
+
+/**
+ * Build a link an applicant can use to choose their own password.
+ *
+ * `generateLink` produces the same link GoTrue's invite email would have
+ * contained, without asking GoTrue to send it — which is the whole point, see
+ * `decideAdminRequestAction`. Prefers an invite link (the flow the account was
+ * created for) and falls back to a magic link for an account that already
+ * exists. Both carry a live session in the URL hash, which is what
+ * /gestion/set-password consumes.
+ */
+async function buildSetPasswordLink(
+  admin: AuthAdminApi,
+  email: string,
+  redirectTo: string,
+): Promise<{ link: string } | { error: string }> {
+  let lastError = "unknown error";
+  for (const type of ["invite", "magiclink"] as const) {
+    const { data, error } = await admin.generateLink({ type, email, options: { redirectTo } });
+    const link = data?.properties?.action_link;
+    if (!error && link) return { link };
+    lastError = error?.message ?? "no action_link returned";
+  }
+  return { error: lastError };
 }
 
 /** Public: submit an admin request (INSERT via RLS). */
@@ -219,7 +246,7 @@ export const submitAdminRequestAction = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { getSigningSecret } = await import("@/lib/admin-gestion-config.server");
     const db = supabaseAdmin as unknown as TypedAdmin;
-    const origin = getBaseUrl();
+    const origin = await getBaseUrl();
 
     const { data: newRow } = await db
       .from("admin_requests")
@@ -434,12 +461,13 @@ export const decideAdminRequestAction = createServerFn({ method: "POST" })
       if (existing?.id) {
         userId = existing.id;
       } else {
+        // Create the account. This is used for its side effect on the *user*,
+        // not for its email: the set-password link is generated and sent below,
+        // because GoTrue's mailer is not a dependable transport here.
         // /gestion is the sign-in form, which is useless to someone who has no
-        // password yet: Supabase does not render its own set-password screen,
-        // the app has to. The invite lands with a live session in the hash, so
-        // the recipient can choose a password and go straight to the console.
+        // password yet, so the link points at the app's own set-password page.
         const inviteResult = await admin.inviteUserByEmail(request.email, {
-          redirectTo: `${getBaseUrl()}/gestion/set-password`,
+          redirectTo: `${await getBaseUrl()}/gestion/set-password`,
         });
         if (inviteResult.error) throw new Error(inviteResult.error.message);
 
@@ -473,7 +501,69 @@ export const decideAdminRequestAction = createServerFn({ method: "POST" })
         .update({ status: "approved", decided_at: new Date().toISOString() })
         .eq("id", decoded.requestId);
 
-      return { ok: true as const, action: "accept" as const, email: request.email };
+      // The account now exists and carries the role, but the officer still has
+      // no password and therefore cannot sign in. Getting them that link is a
+      // *separate* delivery problem, and GoTrue's own mailer cannot be trusted
+      // with it: a Supabase project without custom SMTP runs on a development
+      // stub that only delivers to team members, and the drop is not reported
+      // back to `inviteUserByEmail` — the call succeeds because the *user* was
+      // created. So the link is generated here and sent through the club's own
+      // Resend account, where the outcome is observable and can be reported to
+      // the owner instead of vanishing.
+      const { sendClubEmail } = await import("@/lib/resend.server");
+      const setPasswordUrl = `${await getBaseUrl()}/gestion/set-password`;
+      const built = await buildSetPasswordLink(admin, request.email, setPasswordUrl);
+
+      if ("error" in built) {
+        // Never throws and never undoes the approval: the decision stands, but
+        // the owner must know the officer has no way in yet.
+        console.error(
+          `[admin-request] SET-PASSWORD LINK FAILED for requestId=${decoded.requestId} ` +
+            `email=${request.email} error=${built.error}. Request is approved but the officer ` +
+            `cannot sign in until a link is sent by hand.`,
+        );
+        return {
+          ok: true as const,
+          action: "accept" as const,
+          email: request.email,
+          emailSent: false,
+          emailError: built.error,
+        };
+      }
+
+      const welcome = await sendClubEmail({
+        to: request.email,
+        subject: "Welcome to the Wavez Club team — set your password",
+        text: [
+          `Hi ${request.first_name},`,
+          "",
+          "Your application to join the Wavez Club officer team has been approved.",
+          "",
+          "Choose a password for your account using the link below:",
+          built.link,
+          "",
+          `The link signs you in and opens the page where you set your password. ` +
+            `It must be used on the same device if your browser opens the page automatically.`,
+          "",
+          "— Wavez Club",
+        ].join("\n"),
+      });
+
+      if (!welcome.ok) {
+        console.error(
+          `[admin-request] WELCOME EMAIL FAILED for requestId=${decoded.requestId} ` +
+            `email=${request.email} error=${welcome.error}. Request is approved but the officer ` +
+            `has not been told; send the link by hand.`,
+        );
+      }
+
+      return {
+        ok: true as const,
+        action: "accept" as const,
+        email: request.email,
+        emailSent: welcome.ok,
+        emailError: welcome.ok ? undefined : welcome.error,
+      };
     }
 
     // Cancel
