@@ -60,7 +60,7 @@ const permissionsTable = (supabase: SupabaseClient<Database> | unknown) =>
 // ─── Owner / session helpers ─────────────────────────────────────────────────
 
 function getOwnerEmail(): string {
-  return (process.env["OWNER_EMAIL"] ?? process.env["VITE_OWNER_EMAIL"] ?? "").toLowerCase();
+  return (process.env["OWNER_EMAIL"] ?? import.meta.env["VITE_OWNER_EMAIL"] ?? "").toLowerCase();
 }
 
 async function getSupabaseAdmin() {
