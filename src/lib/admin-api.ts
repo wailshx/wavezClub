@@ -260,11 +260,20 @@ async function requireAdmin(context: AdminContext) {
 export const getAdminStatus = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { data } = await context.supabase.rpc("has_role", {
+    const { data, error } = await context.supabase.rpc("has_role", {
       _user_id: context.userId,
       _role: "admin",
     });
-    return Boolean(data);
+    if (error) {
+      console.error("[getAdminStatus] has_role RPC error", {
+        userId: context.userId,
+        error: error.message,
+      });
+      throw error;
+    }
+    const hasAdmin = Boolean(data);
+    console.log("[getAdminStatus]", { userId: context.userId, hasAdmin });
+    return hasAdmin;
   });
 
 export const listMembers = createServerFn({ method: "GET" })

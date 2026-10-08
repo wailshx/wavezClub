@@ -1426,6 +1426,11 @@ function AdminPage() {
           <p className="mt-2 font-semibold text-[#94a3c8]">
             This account doesn't have admin access to the member list.
           </p>
+          {session?.email && (
+            <p className="mt-1 text-sm font-semibold text-[#94a3c8]">
+              Signed in as {session.email}
+            </p>
+          )}
           <button
             onClick={signOut}
             className="clay-sm mt-6 rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white"

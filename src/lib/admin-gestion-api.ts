@@ -283,20 +283,49 @@ export const ensureOwnerAdmin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { getOwnerEmail } = await import("@/lib/admin-gestion-config.server");
-    const { data: userData } = await context.supabase.auth.getUser();
+    const { data: userData, error: userError } = await context.supabase.auth.getUser();
+    if (userError) {
+      console.error("[ensureOwnerAdmin] getUser error", {
+        userId: context.userId,
+        error: userError.message,
+      });
+      return false;
+    }
     const email = userData?.user?.email?.toLowerCase();
-    if (!email || email !== getOwnerEmail()) return false;
+    const ownerEmail = getOwnerEmail();
+    const ownerMatch = Boolean(email && ownerEmail && email === ownerEmail);
+    if (!email || !ownerMatch) {
+      console.log("[ensureOwnerAdmin] skip (not owner or no email)", {
+        userId: context.userId,
+        hasEmail: Boolean(email),
+        ownerMatch,
+      });
+      return false;
+    }
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    const { data: existing } = (await supabaseAdmin
+    const { data: existing, error: existingError } = (await supabaseAdmin
       .from("user_roles")
       .select("id")
       .eq("user_id", context.userId)
       .eq("role", "admin")
-      .maybeSingle()) as unknown as { data: { id: string } | null };
+      .maybeSingle()) as unknown as {
+      data: { id: string } | null;
+      error?: { message: string } | null;
+    };
+    if (existingError) {
+      console.error("[ensureOwnerAdmin] existing check error", {
+        userId: context.userId,
+        error: existingError.message,
+      });
+      return false;
+    }
 
-    if (existing) return true;
+    if (existing) {
+      console.log("[ensureOwnerAdmin] owner already has admin role", { userId: context.userId });
+      return true;
+    }
 
     const roleInsert = (
       supabaseAdmin.from("user_roles") as unknown as {
@@ -310,9 +339,13 @@ export const ensureOwnerAdmin = createServerFn({ method: "POST" })
     });
 
     if (error) {
-      console.error("[ensureOwnerAdmin] insert failed:", error.message);
+      console.error("[ensureOwnerAdmin] insert failed", {
+        userId: context.userId,
+        error: error.message,
+      });
       return false;
     }
+    console.log("[ensureOwnerAdmin] granted president role to owner", { userId: context.userId });
     return true;
   });
 
