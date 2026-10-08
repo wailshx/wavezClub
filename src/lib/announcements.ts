@@ -3,25 +3,43 @@
 // (src/routes/_authenticated/gestion.admin.tsx → `src/lib/admin-api.ts`).
 //
 // The `event` / `news` announcement types are retired (migration 0016). The only
-// kind left is `registration`: an announcement whose whole job is to tell a
-// student that a submission is open. `submission_type` says *which* submission.
+// kind left is `registration`, and `submission_type` is what actually describes
+// the row now that one announcement can move through a lifecycle (migration
+// 0022): a submission that is open, a teaser for one that is not, or plain
+// information with no form at all.
 //
-// An announcement is also the only entry point to registration (migration 0017):
-// its "Submit" button reveals the application form *inside the card*, and the ONE
-// campaign it announces drives which form that is. There is no separate
-// registration page and no shared `#join` campaign list any more — two
-// announcements pointing at one undifferentiated form would have hidden the
-// difference between an open-day membership drive (documents required) and an
-// event sign-up (none).
+// For the two submission types an announcement is also the entry point to
+// registration (migration 0017): its "Submit" button reveals the application
+// form *inside the card*, and the ONE campaign it announces drives which form
+// that is. There is no separate registration page and no shared `#join`
+// campaign list any more — two announcements pointing at one undifferentiated
+// form would have hidden the difference between an open-day membership drive
+// (documents required) and an event sign-up (none).
 
 import type { CampaignKind } from "@/lib/registrations";
 
 /** The only announcement kind that exists in the database. */
 export const ANNOUNCEMENT_KIND = "registration" as const;
 
-/** What an announcement is asking students to submit to. */
-export const SUBMISSION_TYPES = ["openday", "event"] as const;
+/**
+ * The four shapes an announcement can take (migration 0022).
+ *
+ * The first two are submissions — they drive a campaign and show a form. The
+ * other two deliberately do not: `announcement` is information only, `soon` is
+ * a teaser that may name the day it opens.
+ */
+export const SUBMISSION_TYPES = ["openday", "event", "announcement", "soon"] as const;
 export type SubmissionType = (typeof SUBMISSION_TYPES)[number];
+
+/** The two types that drive a registration form. */
+export const OPEN_SUBMISSION_TYPES = ["openday", "event"] as const;
+
+/** True only for the two types that submit to a campaign. */
+export function isOpenSubmissionType(
+  value: unknown,
+): value is Extract<SubmissionType, "openday" | "event"> {
+  return value === "openday" || value === "event";
+}
 
 /** Narrow an untrusted value (form input, JSON row) to a `SubmissionType`. */
 export function isSubmissionType(value: unknown): value is SubmissionType {
@@ -34,38 +52,50 @@ export function isSubmissionType(value: unknown): value is SubmissionType {
  * This is the invariant that keeps the two flows honest: an "open day"
  * announcement can only drive a membership campaign (3-step wizard, document
  * uploads) and an "event" announcement only an event campaign (single-step
- * form). Enforced in the admin form and re-checked in `savePost`.
+ * form). `announcement` and `soon` carry no form at all — `null` means "must
+ * not be attached to a campaign" and is re-checked in `savePost`.
  */
-export const CAMPAIGN_KIND_FOR_SUBMISSION: Record<SubmissionType, CampaignKind> = {
+export const CAMPAIGN_KIND_FOR_SUBMISSION: Record<SubmissionType, CampaignKind | null> = {
   openday: "membership",
   event: "event",
+  announcement: null,
+  soon: null,
 };
 
 /** Short name — admin pills, dropdowns, analytics legends. */
 export const SUBMISSION_TYPE_LABEL: Record<SubmissionType, string> = {
   openday: "Open day",
   event: "Event",
+  announcement: "Announcement",
+  soon: "Opening soon",
 };
 
 /** Full card eyebrow — answers "what is this, exactly?" before the title is read. */
 export const SUBMISSION_TYPE_KIND_LABEL: Record<SubmissionType, string> = {
   openday: "Submission for open day",
   event: "Submission for event",
+  announcement: "Announcement",
+  soon: "Registration opening soon",
 };
 
 /** One-line helper shown under the eyebrow in the admin form. */
 export const SUBMISSION_TYPE_HINT: Record<SubmissionType, string> = {
   openday: "Students come to meet the club, tour the labs and register for a full membership.",
   event: "Students sign up to take part in one specific club event or workshop.",
+  announcement: "Information only — no form, no call to action.",
+  soon: "Teaser card with an optional opening date; the form comes later.",
 };
 
 /**
  * The card's call to action. Both reveal the form in place, but the wording has
- * to match what they are actually applying for.
+ * to match what they are actually applying for. The two non-submission types
+ * never render a CTA, so their entries exist only to complete the record.
  */
 export const SUBMISSION_CTA_LABEL: Record<SubmissionType, string> = {
   openday: "Submit your application",
   event: "Register for this event",
+  announcement: "",
+  soon: "",
 };
 
 /**
@@ -75,6 +105,8 @@ export const SUBMISSION_CTA_LABEL: Record<SubmissionType, string> = {
 export const SUBMISSION_CTA_NOTE: Record<SubmissionType, string> = {
   openday: "About 5 minutes — you'll attach your school certificate and ID card.",
   event: "About 2 minutes — just your details, no documents needed.",
+  announcement: "",
+  soon: "",
 };
 
 /**
@@ -96,6 +128,8 @@ export type SubmissionAnnouncement = {
   location: string | null;
   event_date: string | null;
   submission_type: SubmissionType;
+  /** Teaser date for the `soon` type — null for every other announcement. */
+  opens_at: string | null;
   is_pinned: boolean;
   created_at: string;
   /** Campaign this announcement drives, or null when none is linked yet. */
@@ -103,14 +137,30 @@ export type SubmissionAnnouncement = {
 };
 
 /**
- * Feed order: pinned first, then newest. Applied client-side too so the public
- * card list stays correct even if a caller forgets the `order` clause.
+ * Feed band, low numbers first: the two submission types are what a student
+ * can act on right now, `soon` is what they should watch for, and a plain
+ * announcement is background information.
  */
-export function sortAnnouncements<T extends { is_pinned: boolean; created_at: string }>(
-  rows: readonly T[],
-): T[] {
+export function announcementBand(type: SubmissionType): 0 | 1 | 2 {
+  if (isOpenSubmissionType(type)) return 0;
+  if (type === "soon") return 1;
+  return 2;
+}
+
+/**
+ * Feed order: open submissions first, then "opening soon", then information
+ * announcements — pinned first and newest first inside each band. Applied
+ * client-side too so the public card list stays correct even if a caller
+ * forgets the `order` clause.
+ */
+export function sortAnnouncements<
+  T extends { submission_type: SubmissionType; is_pinned: boolean; created_at: string },
+>(rows: readonly T[]): T[] {
   return [...rows].sort(
-    (a, b) => Number(b.is_pinned) - Number(a.is_pinned) || b.created_at.localeCompare(a.created_at),
+    (a, b) =>
+      announcementBand(a.submission_type) - announcementBand(b.submission_type) ||
+      Number(b.is_pinned) - Number(a.is_pinned) ||
+      b.created_at.localeCompare(a.created_at),
   );
 }
 

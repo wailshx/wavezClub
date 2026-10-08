@@ -11,7 +11,7 @@
 
 **Supabase CLI mirror:** the same SQL files are copied to `supabase/migrations/` so `supabase db push` / diff tooling can target the correct project (`supabase/config.toml` → `pnqdtozfqzvybewuabwc`, matching `.env`).
 
-Until the Supabase CLI is linked to this project (`supabase link --project-ref pnqdtozfqzvybewuabwc`), apply new migrations **manually** via the [Supabase Dashboard SQL Editor](https://supabase.com/dashboard/project/pnqdtozfqzvybewuabwc/sql/new) — paste each file in journal order (`0000` … `0020`). After editing a migration in `drizzle/migrations/`, re-copy it to `supabase/migrations/` before applying.
+Until the Supabase CLI is linked to this project (`supabase link --project-ref pnqdtozfqzvybewuabwc`), apply new migrations **manually** via the [Supabase Dashboard SQL Editor](https://supabase.com/dashboard/project/pnqdtozfqzvybewuabwc/sql/new) — paste each file in journal order (`0000` … `0023`). After editing a migration in `drizzle/migrations/`, re-copy it to `supabase/migrations/` before applying.
 
 | Migration | Purpose |
 |---|---|
@@ -26,31 +26,55 @@ Until the Supabase CLI is linked to this project (`supabase link --project-ref p
 | `0019_remap_faculty_fields.sql` | Remaps the pre-faculty `department`/`speciality` strings onto the current `DEPARTMENTS`/`SPECIALITIES` lists in `src/lib/club.ts`. Needed because those are plain `text` with no CHECK constraint: a `<select>` whose stored value is not among its options submits the first option, so editing a member would have silently rewritten their department. Trailing `SELECT`s report anything left outside the lists instead of guessing |
 | `0020_close_members_public_insert.sql` | Drops `"anyone can apply"` on `members` (from `0000`, for the deleted public join form) and replaces it with an admin-only INSERT policy. **Dropping it alone would break `acceptRegistration`** — server functions use the caller's JWT with the publishable key, not the service-role key, so RLS *is* enforced on that insert and the loose policy was the only thing allowing it. Also revokes anon `INSERT` on the table. The trailing `SELECT` lists the surviving policies |
 | `0017_post_campaign_link.sql` | Adds `posts.campaign_id` → `registration_campaigns(id) ON DELETE SET NULL` + index. The announcement *is* the registration entry point, so each one points at the single campaign it announces |
+| `0022_expand_announcement_types.sql` | Grows `posts.submission_type` from `('openday','event')` to the four announcement types by dropping the unnamed `0016` CHECK (found by definition text, skipped if a CHECK already allows `'announcement'`) and adding `posts_submission_type_check`; adds nullable `posts.opens_at` for the `soon` teaser's date; backfills campaign-less `openday`/`event` rows to `announcement`. **Run before deploying the build** — the admin form writes `opens_at`, which does not exist until step 2 |
+| `0023_restore_public_function_grants.sql` | Re-grants `EXECUTE` on the RPCs the app actually calls: `list_open_campaigns()` and `is_registration_open(uuid)` to **anon + authenticated** (the public card and the RLS policy behind every anonymous submit), `has_role` and `update_own_profile` to authenticated, `get_dashboard_stats` to service_role. Probed after `0022`: every one of them answered `42501 permission denied for function` under the publishable key, which means every public card showed the closed state and no visitor could submit. The grants were already declared in `0006`/`0007`/`0008`/`0014`/`0021` — something revoked them afterwards; this puts them back and ends with a `proacl`/`has_function_privilege` table to eyeball |
+| `0021_grant_has_role_execute_to_authenticated.sql` | Grants `EXECUTE` on `has_role(uuid, app_role)` to `authenticated`. The RPC runs as the caller (publishable key + user's JWT) behind `getAdminStatus`, and Postgres only lets the owner execute a function by default, so without it every admin status check failed with `42501` |
 
 ### Announcements = submissions only
 
 `posts` is no longer a news feed. The `event` and `news` kinds are gone from the
-database, the public site and the admin console. Every announcement now exists to
-announce a submission (`submission_type`: `'openday' | 'event'`), and the
-application form lives **inside the card** — there is no separate registration
-page anywhere, public or admin.
+database, the public site and the admin console. Every row is an announcement
+(`post_kind` = `'registration'`), and `submission_type` says what kind —
+migration `0022` grew it from two values to four, so an announcement can move
+through a lifecycle instead of being born a submission:
+
+| `submission_type` | What the student sees | Campaign |
+|---|---|---|
+| `openday` | Live membership wizard — 3 steps: profile, school certificate + ID card upload, custom questions | `kind = 'membership'` |
+| `event` | Live event form — single step, details only, no documents | `kind = 'event'` |
+| `announcement` | Information only: eyebrow, title, body — no CTA, no form | none |
+| `soon` | Teaser: a calm "Registration opening soon" plus the optional `posts.opens_at` date | none |
+
+Only the first two are submissions. `CAMPAIGN_KIND_FOR_SUBMISSION` maps all four
+to a `CampaignKind` or `null`, and `null` is what `savePost` treats as "must not
+create a campaign" — for those two types a linked campaign is kept but **closed**
+(and its title/description mirrored), never deleted, so its submissions survive
+a round trip back to a submission type. `isOpenSubmissionType()` is the runtime
+test used by the card, the feed and the admin form.
+
+Feed order is `sortAnnouncements`: the open-submission band first, then `soon`,
+then plain announcements — pinned first, newest first inside each band.
+
+Closing rather than deleting also keeps the dashboard honest: `open_campaigns`
+counts `registration_campaigns WHERE is_open`, so it drops to zero on its own
+when nothing takes applications. The homepage hero and the footer use that same
+open-campaign list to degrade from "Apply now" to "See announcements".
+
+The application form lives **inside the card** — there is no separate
+registration page anywhere, public or admin.
 
 There is no shared campaign list on the homepage any more — the `#join` section
-and every `hash="join"` link are gone. `submission_type` is bound to the
-campaign kind through `CAMPAIGN_KIND_FOR_SUBMISSION`:
-
-| Announcement | Campaign `kind` | Form the student gets |
-|---|---|---|
-| `openday` | `membership` | Membership wizard — 3 steps: profile, school certificate + ID card upload, custom questions |
-| `event` | `event` | Event form — single step, details only, no documents |
+and every `hash="join"` link are gone. For the two submission types, the
+announcement-type ↔ campaign-kind pair is re-validated by `savePost` server-side,
+because the admin picker is filtered client-side and a stale tab can still
+submit a mismatch — the save is refused and the form offers an "attach a
+matching registration" picker (or "Remove link") instead.
 
 The link is **nullable on purpose**: an announcement can be written before its
 campaign exists. The public card resolves `campaign_id` against
 `list_open_campaigns`, and renders a non-clickable "Registration opening soon"
 state when the link is missing *or* the campaign is closed — never a dead link
-into "This registration has closed". `savePost` re-validates the
-announcement-type ↔ campaign-kind pair server-side, because the admin picker is
-filtered client-side and a stale tab can still submit a mismatch.
+into "This registration has closed".
 
 | Piece | Path |
 |---|---|

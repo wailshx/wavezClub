@@ -6,6 +6,7 @@ import type { Database } from "@/integrations/supabase/types";
 import {
   ANNOUNCEMENT_KIND,
   CAMPAIGN_KIND_FOR_SUBMISSION,
+  isOpenSubmissionType,
   isSubmissionType,
   type SubmissionType,
 } from "@/lib/announcements";
@@ -42,9 +43,10 @@ export type AdminMember = {
 export type MemberDocumentKey = "school_certificate" | "identity_card";
 
 /**
- * An announcement in the admin console. `kind` is fixed to `registration` — the
- * event/news types are retired (migration 0016) and every announcement now
- * exists to announce an open submission.
+ * An announcement in the admin console. `kind` is fixed to `registration` (the
+ * event/news types were retired in migration 0016); `submission_type` is what
+ * describes the row — open day, event, plain information, or a teaser for a
+ * submission that opens later (migration 0022).
  */
 export type AdminPost = {
   id: string;
@@ -55,6 +57,8 @@ export type AdminPost = {
   location: string | null;
   event_date: string | null;
   submission_type: SubmissionType;
+  /** When a `soon` teaser opens; null for every other announcement. */
+  opens_at: string | null;
   /** Campaign the public card submits to; null until one is linked. */
   campaign_id: string | null;
   is_pinned: boolean;
@@ -248,6 +252,41 @@ async function writeCampaign(
   return data.id;
 }
 
+/**
+ * Close the campaign an announcement keeps while it is an `announcement` or a
+ * `soon` teaser, mirroring the title/subtitle like `writeCampaign` does.
+ *
+ * Deliberately does *not* delete or re-kind the row: its submissions are the
+ * record of who applied, and switching the announcement back to a submission
+ * must reopen this same campaign with those submissions intact. A failure here
+ * fails the save — closing is what keeps the dashboard's open-campaign count
+ * and the public card honest for a post that no longer accepts applications.
+ */
+async function closeKeptCampaign(
+  supabase: SupabaseClient<Database>,
+  campaignId: string,
+  mirror: { title: string; description: string },
+): Promise<void> {
+  const table = (
+    supabase as unknown as {
+      from: (name: string) => {
+        update: (row: object) => {
+          eq: (column: string, value: string) => PromiseLike<{ error: { message: string } | null }>;
+        };
+      };
+    }
+  ).from("registration_campaigns");
+
+  const { error } = await table
+    .update({
+      title: mirror.title,
+      description: mirror.description,
+      is_open: false,
+    })
+    .eq("id", campaignId);
+  if (error) throw new Error(`Could not close the linked registration: ${error.message}`);
+}
+
 async function requireAdmin(context: AdminContext) {
   const { data, error } = await context.supabase.rpc("has_role", {
     _user_id: context.userId,
@@ -427,11 +466,15 @@ export const savePost = createServerFn({ method: "POST" })
     const title = post.title.trim();
     if (!title) throw new Error("Title is required");
     if (!isSubmissionType(post.submission_type)) {
-      throw new Error("Choose whether this is an open day or an event submission");
+      throw new Error("Choose an announcement type: open day, event, announcement or opening soon");
     }
     const parsedDate = post.event_date ? new Date(post.event_date) : null;
     if (parsedDate && Number.isNaN(parsedDate.getTime())) {
       throw new Error("Invalid date & time");
+    }
+    const parsedOpensAt = post.opens_at ? new Date(post.opens_at) : null;
+    if (parsedOpensAt && Number.isNaN(parsedOpensAt.getTime())) {
+      throw new Error("Invalid opening date");
     }
     if (post.campaign.custom_questions.length > MAX_CUSTOM_QUESTIONS) {
       throw new Error(`At most ${MAX_CUSTOM_QUESTIONS} questions per submission`);
@@ -441,23 +484,53 @@ export const savePost = createServerFn({ method: "POST" })
     // derived from the announcement type rather than chosen separately: an open
     // day can only ever drive a membership campaign, an event an event one.
     const kind = CAMPAIGN_KIND_FOR_SUBMISSION[post.submission_type];
+    const isSubmission = isOpenSubmissionType(post.submission_type);
 
     // Reuse the campaign this announcement already owns. An announcement created
     // before this merge can have none, in which case one is created for it.
     let existingCampaignId: string | null = post.campaign_id ?? null;
+    let existingCampaign: { id: string; kind: string } | null = null;
     if (existingCampaignId) {
-      const existing = await readCampaign(supabase, existingCampaignId);
-      if (!existing) existingCampaignId = null;
+      existingCampaign = await readCampaign(supabase, existingCampaignId);
+      if (!existingCampaign) existingCampaignId = null;
     }
 
-    const campaignId = await writeCampaign(supabase, {
-      existingId: existingCampaignId,
-      title: title.slice(0, MAX_TITLE),
-      description: post.subtitle.trim().slice(0, MAX_SUBTITLE),
-      kind,
-      is_open: post.campaign.is_open === true,
-      custom_questions: post.campaign.custom_questions,
-    });
+    let campaignId: string | null;
+    if (isSubmission) {
+      if (!kind) throw new Error("This type does not take a registration form");
+
+      // A stale tab can hold a campaign attached under a different type.
+      // Re-kinding it silently would swap the form under students who already
+      // applied, so the mismatch is refused instead — the admin attaches a
+      // matching registration (the picker only offers those) or removes the link.
+      if (existingCampaign && existingCampaign.kind !== kind) {
+        const attached = existingCampaign.kind === "membership" ? "an open-day" : "an event";
+        const wanted = kind === "membership" ? "an open-day" : "an event";
+        throw new Error(
+          `This announcement is linked to ${attached} registration, but this type needs ${wanted} one — attach a matching registration or remove the link.`,
+        );
+      }
+
+      campaignId = await writeCampaign(supabase, {
+        existingId: existingCampaignId,
+        title: title.slice(0, MAX_TITLE),
+        description: post.subtitle.trim().slice(0, MAX_SUBTITLE),
+        kind,
+        is_open: post.campaign.is_open === true,
+        custom_questions: post.campaign.custom_questions,
+      });
+    } else {
+      // `announcement` / `soon`: no form, so nothing new is created. A campaign
+      // that is already linked stays linked — closed, never deleted — so its
+      // submissions survive and switching back reopens the same registration.
+      campaignId = existingCampaignId;
+      if (campaignId) {
+        await closeKeptCampaign(supabase, campaignId, {
+          title: title.slice(0, MAX_TITLE),
+          description: post.subtitle.trim().slice(0, MAX_SUBTITLE),
+        });
+      }
+    }
 
     const payload = {
       kind: ANNOUNCEMENT_KIND,
@@ -467,14 +540,32 @@ export const savePost = createServerFn({ method: "POST" })
       location: post.location?.trim() ? post.location.trim().slice(0, MAX_LOCATION) : null,
       event_date: parsedDate ? parsedDate.toISOString() : null,
       submission_type: post.submission_type,
+      opens_at: parsedOpensAt ? parsedOpensAt.toISOString() : null,
       campaign_id: campaignId,
       is_pinned: post.is_pinned === true,
       published: post.published === true,
     };
 
+    // `opens_at` (migration 0022) is newer than the hand-trimmed generated
+    // types, so the table is reached structurally — the same treatment
+    // `registration_campaigns` already gets here.
+    const postsTable = (
+      supabase as unknown as {
+        from: (name: string) => {
+          insert: (row: object) => PromiseLike<{ error: { message: string } | null }>;
+          update: (row: object) => {
+            eq: (
+              column: string,
+              value: string,
+            ) => PromiseLike<{ error: { message: string } | null }>;
+          };
+        };
+      }
+    ).from("posts");
+
     const { error } = post.id
-      ? await supabase.from("posts").update(payload).eq("id", post.id)
-      : await supabase.from("posts").insert(payload);
+      ? await postsTable.update(payload).eq("id", post.id)
+      : await postsTable.insert(payload);
     if (error) throw new Error(error.message);
     return true;
   });

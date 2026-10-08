@@ -15,7 +15,7 @@ const EXPLORE_LINKS: ReadonlyArray<{ to: "/" | "/about"; hash?: string; label: s
   { to: "/", label: "Home" },
   { to: "/about", label: "About" },
   { to: "/", hash: "leaders", label: "Team" },
-  { to: "/", hash: "submissions", label: "Submissions" },
+  { to: "/", hash: "submissions", label: "Announcements" },
 ];
 
 /** Current official brand marks (Font Awesome 6 brand glyphs) as inline SVGs. */
@@ -40,28 +40,34 @@ const SOCIALS = [
 const LINK_CLASS =
   "inline-flex min-h-10 items-center rounded-xl px-3 py-1.5 text-sm font-bold text-foreground/70 transition-colors hover:text-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2";
 
-export function SiteFooter() {
+export function SiteFooter({ hasOpenSubmissions = true }: { hasOpenSubmissions?: boolean }) {
   const year = new Date().getFullYear();
 
   return (
     <footer className="border-t border-brand/10 bg-card/40">
       <div className="mx-auto max-w-6xl px-5 py-8 md:py-12">
-        {/* Final call-to-action — the last chance to steer a leaving visitor. */}
+        {/* Final call-to-action — the last chance to steer a leaving visitor.
+            It promises applications only while one is actually open; the feed
+            always exists, so the wording drops to "announcements" otherwise. */}
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
           <div>
             <h2 className="font-display text-2xl leading-tight font-bold text-brand-deep">
-              Ready to join the wave?
+              {hasOpenSubmissions ? "Ready to join the wave?" : "What's happening in the club"}
             </h2>
             <p className="mt-1.5 text-sm font-semibold text-foreground/70">
-              Open submissions are live — pick an announcement and apply in minutes.
+              {hasOpenSubmissions
+                ? "Open submissions are live — pick an announcement and apply in minutes."
+                : "Open days, events and club news are all listed on the announcements feed."}
             </p>
           </div>
           <Link
             to="/"
             hash="submissions"
-            className="cta-pulse clay-md group inline-flex w-fit items-center gap-2 rounded-2xl bg-brand px-6 py-3 text-sm font-bold text-primary-foreground transition-transform duration-200 hover:pointer-fine:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+            className={`clay-md group inline-flex w-fit items-center gap-2 rounded-2xl bg-brand px-6 py-3 text-sm font-bold text-primary-foreground transition-transform duration-200 hover:pointer-fine:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
+              hasOpenSubmissions ? "cta-pulse" : ""
+            }`}
           >
-            Apply now
+            {hasOpenSubmissions ? "Apply now" : "See announcements"}
             <ArrowRight
               aria-hidden="true"
               className="size-4 transition-transform duration-200 group-hover:translate-x-1"
@@ -125,7 +131,7 @@ export function SiteFooter() {
               <ul className="mt-2 flex flex-col">
                 <li>
                   <Link to="/" hash="submissions" className={LINK_CLASS}>
-                    Register for a campaign
+                    {hasOpenSubmissions ? "Register for a campaign" : "See announcements"}
                   </Link>
                 </li>
                 <li>

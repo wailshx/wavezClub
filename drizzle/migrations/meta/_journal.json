@@ -155,6 +155,20 @@
       "when": 1791419999999,
       "tag": "0021_grant_has_role_execute_to_authenticated",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791500000000,
+      "tag": "0022_expand_announcement_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791600000000,
+      "tag": "0023_restore_public_function_grants",
+      "breakpoints": true
     }
   ]
 }

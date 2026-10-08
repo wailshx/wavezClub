@@ -4,9 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { OpenCampaign } from "@/lib/registrations";
 import {
+  isSubmissionType,
+  isOpenSubmissionType,
   sortAnnouncements,
   type SubmissionAnnouncement,
-  type SubmissionType,
 } from "@/lib/announcements";
 import { BoltDivider } from "@/components/circuit-board";
 import { ScrollReveal } from "@/components/scroll-reveal";
@@ -50,14 +51,18 @@ function toAnnouncement(row: {
   body: string;
   location: string | null;
   event_date: string | null;
+  opens_at: string | null;
   submission_type: string;
   is_pinned: boolean;
   created_at: string;
   campaign_id: string | null;
 }): SubmissionAnnouncement {
+  // Anything outside the four known types falls back to `announcement`: a
+  // value this feed cannot recognise must never be rendered as a card that
+  // opens an application form.
   return {
     ...row,
-    submission_type: (row.submission_type === "event" ? "event" : "openday") as SubmissionType,
+    submission_type: isSubmissionType(row.submission_type) ? row.submission_type : "announcement",
   };
 }
 
@@ -68,7 +73,7 @@ function Index() {
       const { data, error } = await supabase
         .from("posts")
         .select(
-          "id, title, subtitle, body, location, event_date, submission_type, is_pinned, created_at, campaign_id",
+          "id, title, subtitle, body, location, event_date, opens_at, submission_type, is_pinned, created_at, campaign_id",
         )
         .eq("published", true)
         .order("is_pinned", { ascending: false })
@@ -114,7 +119,12 @@ function Index() {
 
   const openCampaignsById = new Map(openCampaigns.map((campaign) => [campaign.id, campaign]));
 
-  // Feed order: pinned announcements first, then newest.
+  // The hero's main button promises submissions, so it softens to plain
+  // "announcements" whenever nothing is accepting entries.
+  const hasOpenSubmissions = openCampaigns.length > 0;
+
+  // Feed order: open submissions first, then teasers, then plain announcements —
+  // pinned first and newest first inside each band.
   const announcements = sortAnnouncements(posts);
 
   return (
@@ -144,13 +154,13 @@ function Index() {
             </p>
             <div className="mt-9 flex flex-wrap gap-4">
               {/* Registration is per-announcement now (each card submits to its own
-                  campaign), so the hero points at the feed instead of a shared
-                  campaign list that no longer exists. */}
+                  campaign), so the hero points at the feed. The wording follows the
+                  feed: submissions when something is open, announcements when not. */}
               <a
                 href="#submissions"
                 className="clay-md rounded-2xl bg-brand px-7 py-3.5 font-bold text-primary-foreground focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
               >
-                See open submissions
+                {hasOpenSubmissions ? "See open submissions" : "See announcements"}
               </a>
               <Link
                 to="/about"
@@ -289,16 +299,16 @@ function Index() {
           <div>
             <ScrollReveal>
               <p className="text-xs font-extrabold tracking-widest text-brand uppercase">
-                Announcements
+                From the club
               </p>
               <h2 className="mt-2 font-display text-4xl leading-tight font-bold md:text-5xl">
-                Open for submission
+                Announcements
               </h2>
             </ScrollReveal>
             <ScrollReveal delay={0.1}>
               <p className="mt-3 max-w-2xl font-semibold text-muted-foreground">
-                Every announcement here is a live submission — an open day or a club event you can
-                apply to right now, from the card itself.
+                Open days and club events you can apply to right now from the card itself — plus
+                club news and the submissions opening soon.
               </p>
             </ScrollReveal>
           </div>
@@ -308,9 +318,9 @@ function Index() {
           <p className="mt-8 font-semibold text-muted-foreground">Loading announcements…</p>
         ) : announcements.length === 0 ? (
           <div className="mt-10 max-w-2xl border-t border-foreground/10 pt-8">
-            <p className="font-display text-xl font-bold">No submission is open right now</p>
+            <p className="font-display text-xl font-bold">Nothing announced yet</p>
             <p className="mt-2 font-semibold text-muted-foreground">
-              We open a new submission before every open day and club event — check back soon.
+              Open days, events and club news all land here — check back soon.
             </p>
           </div>
         ) : (
@@ -321,7 +331,7 @@ function Index() {
                 announcement={announcement}
                 index={index}
                 campaign={
-                  announcement.campaign_id
+                  announcement.campaign_id && isOpenSubmissionType(announcement.submission_type)
                     ? (openCampaignsById.get(announcement.campaign_id) ?? null)
                     : null
                 }
@@ -354,7 +364,7 @@ function Index() {
         </ScrollReveal>
       </section>
 
-      <SiteFooter />
+      <SiteFooter hasOpenSubmissions={hasOpenSubmissions} />
     </div>
   );
 }
