@@ -253,17 +253,17 @@ export const decideAdminRequest = createServerFn({ method: "POST" })
     )?.id;
 
     if (!userId) {
-      // Must match the token path in admin-gestion-api.ts, and it must be the
-      // canonical origin rather than whatever host this request arrived on:
-      // Supabase only uses redirectTo if the origin+path is on the dashboard's
-      // Redirect URL allowlist, and otherwise silently falls back to the Site
-      // URL — which lands the officer on the homepage having already spent the
-      // single-use token, with no password screen to reach.
       const { resolveAppOrigin } = await import("@/lib/app-origin.server");
       const redirectTo = `${await resolveAppOrigin()}/gestion/set-password`;
 
       const invited = await admin.inviteUserByEmail(email, { redirectTo });
-      if (invited.error) throw new Error(invited.error.message);
+      console.error(
+        `[admin-request] inviteUserByEmail (console) called for email=${email} ` +
+          `ok=${invited.error ? "false" : "true"} ` +
+          `error=${invited.error ? invited.error.message : "none"} ` +
+          `status=${invited.error ? invited.error.status : "ok"}`,
+      );
+      if (invited.error) throw new Error(`Invite failed: ${invited.error.message}`);
 
       const { data: afterInvite } = await admin.listUsers({ perPage: 1000 });
       userId = afterInvite?.users.find(
