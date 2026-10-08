@@ -473,18 +473,20 @@ export const decideAdminRequestAction = createServerFn({ method: "POST" })
             `email=${request.email}; sending password recovery link via Resend as fallback.`,
         );
       } else {
-        // Create the account via invite. Log the full result.
-        const inviteResult = await admin.inviteUserByEmail(request.email, {
-          redirectTo: `${await getBaseUrl()}/gestion/set-password`,
+        // Generate invite link ourselves and send via Resend (no reliance on Supabase SMTP)
+        const inviteGen = await admin.generateLink({
+          type: "invite",
+          email: request.email,
+          options: { redirectTo: `${await getBaseUrl()}/gestion/set-password` },
         });
         console.error(
-          `[admin-request] inviteUserByEmail called for requestId=${decoded.requestId} ` +
-            `email=${request.email} ok=${inviteResult.error ? "false" : "true"} ` +
-            `error=${inviteResult.error ? inviteResult.error.message : "none"} ` +
-            `status=${inviteResult.error ? inviteResult.error.status : "ok"}`,
+          `[admin-request] generateLink(type=invite) called for requestId=${decoded.requestId} ` +
+            `email=${request.email} ok=${inviteGen.error ? "false" : "true"} ` +
+            `error=${inviteGen.error ? inviteGen.error.message : "none"} ` +
+            `status=${inviteGen.error ? inviteGen.error.status : "ok"}`,
         );
-        if (inviteResult.error) {
-          throw new Error(`Invite failed: ${inviteResult.error.message}`);
+        if (inviteGen.error) {
+          throw new Error(`Invite failed: ${inviteGen.error.message}`);
         }
 
         const { data: afterInvite } = await admin.listUsers({ perPage: 1000 });

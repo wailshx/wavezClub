@@ -256,9 +256,13 @@ export const decideAdminRequest = createServerFn({ method: "POST" })
       const { resolveAppOrigin } = await import("@/lib/app-origin.server");
       const redirectTo = `${await resolveAppOrigin()}/gestion/set-password`;
 
-      const invited = await admin.inviteUserByEmail(email, { redirectTo });
+      const invited = await admin.generateLink({
+        type: "invite",
+        email,
+        options: { redirectTo },
+      });
       console.error(
-        `[admin-request] inviteUserByEmail (console) called for email=${email} ` +
+        `[admin-request] generateLink(type=invite, console) called for email=${email} ` +
           `ok=${invited.error ? "false" : "true"} ` +
           `error=${invited.error ? invited.error.message : "none"} ` +
           `status=${invited.error ? invited.error.status : "ok"}`,
