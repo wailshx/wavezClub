@@ -15,7 +15,7 @@
 // updated together. They are one setting in two places, and the allowlist is
 // the half that fails without saying so.
 
-export const CANONICAL_ORIGIN = "https://wavezclub.vercel.app";
+export const CANONICAL_ORIGIN = "https://www.wave-z.club";
 
 /**
  * The origin to build `redirectTo` values from.
