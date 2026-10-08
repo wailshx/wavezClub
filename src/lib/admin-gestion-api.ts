@@ -179,8 +179,8 @@ export async function verifyReviewToken(
  * off-allowlist origin costs the applicant their single-use token.
  */
 async function getBaseUrl(): Promise<string> {
-  const { resolveAppOrigin } = await import("@/lib/app-origin.server");
-  return resolveAppOrigin();
+  const { getSiteUrl } = await import("@/lib/site-url.server");
+  return getSiteUrl();
 }
 
 async function authAdmin(supabaseAdmin: SupabaseClient): Promise<AuthAdminApi> {

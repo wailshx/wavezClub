@@ -253,8 +253,8 @@ export const decideAdminRequest = createServerFn({ method: "POST" })
     )?.id;
 
     if (!userId) {
-      const { resolveAppOrigin } = await import("@/lib/app-origin.server");
-      const redirectTo = `${await resolveAppOrigin()}/gestion/set-password`;
+      const { getSiteUrl } = await import("@/lib/site-url.server");
+      const redirectTo = `${await getSiteUrl()}/gestion/set-password`;
 
       const invited = await admin.generateLink({
         type: "invite",
@@ -634,16 +634,15 @@ export const resendAdminInvite = createServerFn({ method: "POST" })
     const email = (target?.user?.email ?? "").toLowerCase();
     if (!email) throw new Error("That account has no email address.");
 
-    const [{ buildSetPasswordLink, sendSetPasswordInvite }, { resolveAppOrigin }] =
-      await Promise.all([
-        import("@/lib/admin-invite-link.server"),
-        import("@/lib/app-origin.server"),
-      ]);
+    const [{ buildSetPasswordLink, sendSetPasswordInvite }, { getSiteUrl }] = await Promise.all([
+      import("@/lib/admin-invite-link.server"),
+      import("@/lib/site-url.server"),
+    ]);
 
     const built = await buildSetPasswordLink(
       supabaseAdmin.auth.admin,
       email,
-      `${await resolveAppOrigin()}/gestion/set-password`,
+      `${await getSiteUrl()}/gestion/set-password`,
     );
     if ("error" in built) throw new Error(`Could not create the link: ${built.error}`);
 

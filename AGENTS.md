@@ -226,14 +226,14 @@ back to the Site URL, and the recipient lands on the homepage with an
 `#error=access_denied` hash and no password screen. There is no error on the
 invite call itself. Required entries:
 
-- Site URL: `https://wavezclub.vercel.app`
-- Redirect URLs: `https://wavezclub.vercel.app/**` and
+- Site URL: `https://wavez-club-p2b4.vercel.app`
+- Redirect URLs: `https://wavez-club-p2b4.vercel.app/**` and
   `https://wavezclub-wailshs-projects.vercel.app/**` (the auto-generated team
   domain) plus `http://localhost:8081/**` for local testing.
 
 **Verified 2026-10-02: this list was wrong.** The probe showed the Site URL was
 still `https://wavezclub-wailshs-projects.vercel.app` and that
-`https://wavezclub.vercel.app/**` was *not* on the allowlist — that origin was
+`https://wavez-club-p2b4.vercel.app/**` was *not* on the allowlist — that origin was
 silently replaced by the Site URL. Any invite or set-password link built on the
 brand domain therefore spent its single-use token and dropped the officer on the
 team-domain homepage instead of the password page. Re-probe after any dashboard
@@ -250,7 +250,7 @@ even a bogus token, so a rejected `redirect_to` is observable in the
 `Location` header:
 
 ```sh
-curl -s -o /dev/null -D - "$SUPABASE_URL/auth/v1/verify?token=probe&type=invite&redirect_to=https://wavezclub.vercel.app/gestion" | grep -i location
+curl -s -o /dev/null -D - "$SUPABASE_URL/auth/v1/verify?token=probe&type=invite&redirect_to=https://wavez-club-p2b4.vercel.app/gestion" | grep -i location
 ```
 
 A rejected value comes back as the bare Site URL.
