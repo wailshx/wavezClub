@@ -249,10 +249,17 @@ async function writeCampaign(
 }
 
 async function requireAdmin(context: AdminContext) {
-  const { data } = await context.supabase.rpc("has_role", {
+  const { data, error } = await context.supabase.rpc("has_role", {
     _user_id: context.userId,
     _role: "admin",
   });
+  if (error) {
+    console.error("[requireAdmin] has_role RPC error", {
+      userId: context.userId,
+      error: error.message,
+    });
+    throw new Error(`Admin access check failed: ${error.message}`);
+  }
   if (!data) throw new Error("Not authorized");
   return context;
 }

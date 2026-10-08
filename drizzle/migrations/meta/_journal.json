@@ -148,6 +148,13 @@
       "when": 1790900000000,
       "tag": "0020_close_members_public_insert",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791419999999,
+      "tag": "0021_grant_has_role_execute_to_authenticated",
+      "breakpoints": true
     }
   ]
 }
