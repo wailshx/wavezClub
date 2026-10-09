@@ -105,6 +105,7 @@ export type AdminTeamMember = {
   role_title: string;
   category: TeamCategory;
   avatar_url: string;
+  bio: string | null;
   linkedin_url: string | null;
   display_order: number;
   created_at: string;
@@ -726,12 +727,17 @@ export const saveTeamMember = createServerFn({ method: "POST" })
     const role_title = member.role_title.trim();
     const avatar_url = member.avatar_url.trim();
     const linkedin_url = (member.linkedin_url ?? "").trim() || null;
+    const bio = (member.bio ?? "").trim() || null;
     if (!name) throw new Error("Name is required");
     if (!role_title) throw new Error("Role title is required");
+    if (role_title.length > 80) {
+      throw new Error("Role title must be 80 characters or fewer. Move the rest into Bio.");
+    }
     if (!avatar_url) throw new Error("Photo is required");
     if (!TEAM_CATEGORIES.some((entry) => entry.value === member.category)) {
       throw new Error("Invalid category");
     }
+    if (bio && bio.length > 600) throw new Error("Bio must be 600 characters or fewer.");
     if (linkedin_url && !isValidLinkedinUrl(linkedin_url)) {
       throw new Error("LinkedIn must be a valid linkedin.com URL");
     }
@@ -740,6 +746,7 @@ export const saveTeamMember = createServerFn({ method: "POST" })
       role_title,
       category: member.category,
       avatar_url,
+      bio,
       linkedin_url,
       display_order: Number.isFinite(Number(member.display_order))
         ? Math.trunc(Number(member.display_order))

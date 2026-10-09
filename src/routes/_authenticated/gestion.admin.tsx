@@ -130,6 +130,7 @@ import {
 } from "@/lib/announcements";
 import { isValidLinkedinUrl, TEAM_CATEGORIES, teamCategoryLabel } from "@/lib/team";
 import { SubmissionAnnouncementCard } from "@/components/submission-announcement-card";
+import { TeamMemberRow } from "@/components/team-member-row";
 import {
   ADMIN_SECTIONS,
   adminSectionLabel,
@@ -742,6 +743,7 @@ const blankTeam: AdminTeamMember = {
   role_title: "",
   category: "professor",
   avatar_url: "",
+  bio: "",
   linkedin_url: "",
   display_order: 1,
   created_at: "",
@@ -1387,6 +1389,15 @@ function AdminPage() {
     }
     if (!teamDraft.role_title.trim()) {
       toast.error("Role title is required");
+      return;
+    }
+    if (teamDraft.role_title.trim().length > 80) {
+      toast.error("Role title is too long — 80 characters max. Move the rest into Bio.");
+      return;
+    }
+    const bio = (teamDraft.bio ?? "").trim();
+    if (bio.length > 600) {
+      toast.error("Bio is too long — 600 characters max.");
       return;
     }
     if (!teamDraft.avatar_url.trim()) {
@@ -3529,7 +3540,25 @@ function AdminPage() {
                         value={teamDraft.role_title}
                         onChange={(e) => setTeamDraft({ ...teamDraft, role_title: e.target.value })}
                         placeholder="Faculty Supervisor"
+                        aria-invalid={teamDraft.role_title.trim().length > 80}
                       />
+                      <p className="mt-1 flex items-center justify-between gap-2 text-xs font-semibold text-[#94a3c8]">
+                        <span>Short and to the point — the bio covers the detail.</span>
+                        <span
+                          className={
+                            teamDraft.role_title.trim().length > 80
+                              ? "font-bold text-[#fda4af]"
+                              : ""
+                          }
+                        >
+                          {teamDraft.role_title.length}/80
+                        </span>
+                      </p>
+                      {teamDraft.role_title.trim().length > 80 && (
+                        <p className="mt-1 text-xs font-bold text-[#fda4af]">
+                          Too long for a title — move it to Bio.
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="text-xs font-extrabold text-muted-foreground uppercase">
@@ -3569,10 +3598,59 @@ function AdminPage() {
                         A valid linkedin.com profile link is required to show the icon.
                       </p>
                     </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Bio (optional)
+                      </label>
+                      <textarea
+                        rows={4}
+                        className={`${fieldClass} min-h-32 resize-y`}
+                        value={teamDraft.bio ?? ""}
+                        onChange={(e) => setTeamDraft({ ...teamDraft, bio: e.target.value })}
+                        placeholder="A short paragraph about who they are and how they guide the club."
+                        aria-invalid={(teamDraft.bio?.trim().length ?? 0) > 600}
+                      />
+                      <p className="mt-1 flex items-center justify-between gap-2 text-xs font-semibold text-[#94a3c8]">
+                        <span>Shown in muted grey next to the photo, clamped to three lines.</span>
+                        <span
+                          className={
+                            (teamDraft.bio?.trim().length ?? 0) > 600
+                              ? "font-bold text-[#fda4af]"
+                              : ""
+                          }
+                        >
+                          {(teamDraft.bio ?? "").length}/600
+                        </span>
+                      </p>
+                      {(teamDraft.bio?.trim().length ?? 0) > 600 && (
+                        <p className="mt-1 text-xs font-bold text-[#fda4af]">
+                          Bio is over 600 characters — shorten it to save.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
+                        Preview
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-[#94a3c8]">
+                        How the row reads on the public site, exactly as you type.
+                      </p>
+                      <div className="mt-3 rounded-2xl border border-dashed border-white/15 bg-white/5 p-5">
+                        <TeamMemberRow member={{ ...teamDraft }} />
+                      </div>
+                    </div>
+
                     <div className="flex flex-wrap gap-3 sm:col-span-2">
                       <button
                         type="submit"
-                        disabled={saveTeamMember.isPending || teamUploading}
+                        disabled={
+                          saveTeamMember.isPending ||
+                          teamUploading ||
+                          teamDraft.role_title.trim().length > 80 ||
+                          (teamDraft.bio?.trim().length ?? 0) > 600
+                        }
                         className="clay-md inline-flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(46,107,255,0.7)] disabled:opacity-70"
                       >
                         <Save className="size-4" />

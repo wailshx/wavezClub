@@ -18,6 +18,7 @@ export type ClubTeamMember = {
   role_title: string;
   category: TeamCategory;
   avatar_url: string;
+  bio: string | null;
   linkedin_url: string | null;
   display_order: number;
   created_at: string;
@@ -44,7 +45,9 @@ export async function fetchPublicTeamMembers(client: SupabaseClient): Promise<Cl
   const loose = client as unknown as LooseFrom;
   const { data, error } = await loose
     .from("team_members")
-    .select("id, name, role_title, category, avatar_url, linkedin_url, display_order, created_at")
+    .select(
+      "id, name, role_title, category, avatar_url, bio, linkedin_url, display_order, created_at",
+    )
     .order("display_order", { ascending: true })
     .order("created_at", { ascending: true })
     .limit(TEAM_PUBLIC_LIMIT);

@@ -183,6 +183,13 @@
       "when": 1791800000000,
       "tag": "0025_lock_user_roles_table_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791900000000,
+      "tag": "0026_add_team_member_bio",
+      "breakpoints": true
     }
   ]
 }

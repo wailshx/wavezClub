@@ -25,7 +25,7 @@ function LeaderCard({ leader }: { leader: ClubLeader }) {
           </div>
         )}
       </div>
-      <p className="mt-7 max-w-full truncate font-display text-3xl font-bold tracking-tight">
+      <p className="mt-7 max-w-full line-clamp-2 font-display text-3xl leading-tight font-bold tracking-tight break-words">
         {leader.name}
       </p>
       <p className="mt-2 max-w-full truncate text-xs font-extrabold tracking-[0.18em] text-brand uppercase">

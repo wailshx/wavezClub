@@ -1,7 +1,5 @@
-import { Linkedin } from "lucide-react";
-
 import { ScrollReveal } from "@/components/scroll-reveal";
-import { leaderInitials } from "@/lib/leaders";
+import { TeamMemberRow } from "@/components/team-member-row";
 import type { ClubTeamMember } from "@/lib/team";
 
 type MentorsSectionProps = {
@@ -22,40 +20,10 @@ export function MentorsSection({ members }: MentorsSectionProps) {
         </p>
       </ScrollReveal>
       <ScrollReveal delay={0.15}>
-        <ul className="mt-12 grid gap-x-10 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="mt-12 grid gap-x-10 gap-y-12 sm:grid-cols-2">
           {members.map((member) => (
-            <li key={member.id} className="flex items-center gap-5">
-              <div className="h-28 w-28 flex-none">
-                {member.avatar_url ? (
-                  <img
-                    src={member.avatar_url}
-                    alt={member.name}
-                    loading="lazy"
-                    className="h-full w-full rounded-full object-cover shadow-[0_16px_36px_-16px_rgba(37,99,235,0.5)] ring-1 ring-brand/15"
-                  />
-                ) : (
-                  <div className="grid h-full w-full place-items-center rounded-full bg-brand/10 font-display text-2xl font-bold text-brand shadow-[0_16px_36px_-16px_rgba(37,99,235,0.45)] ring-1 ring-brand/15">
-                    {leaderInitials(member.name)}
-                  </div>
-                )}
-              </div>
-              <div className="min-w-0">
-                <h4 className="font-display text-lg font-bold">{member.name}</h4>
-                <p className="mt-0.5 text-brand">{member.role_title}</p>
-                {member.linkedin_url && (
-                  <div className="mt-3">
-                    <a
-                      href={member.linkedin_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={`${member.name} on LinkedIn`}
-                      className="inline-flex rounded-full p-1 text-brand transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
-                    >
-                      <Linkedin className="size-5" />
-                    </a>
-                  </div>
-                )}
-              </div>
+            <li key={member.id} className="min-w-0">
+              <TeamMemberRow member={member} />
             </li>
           ))}
         </ul>
