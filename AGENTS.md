@@ -182,10 +182,12 @@ already a member") is what the error toast shows.
 opt-out as the submissions page) is the in-app replacement for the CSV scripts
 in `email-templates/`. One page, split in two:
 
-- **Left:** *Send to* — every member's address, or one submission
-  announcement's students filtered by status (All / Pending / Accepted /
-  Removed / Checked in) — then the template: an HTML/Text toggle top-left, a
-  subject, and a monospace body with clickable token chips.
+- **Left:** *Send to* — every member's address, one submission announcement's
+  students filtered by status (All / Pending / Accepted / Removed / Checked
+  in), or addresses typed by hand (up to 50 per send; an optional name fills
+  `{{first_name}}` when there is exactly one address, otherwise each name
+  falls back to its address) — then the template: an HTML/Text toggle
+  top-left, a subject, and a monospace body with clickable token chips.
 - **Right:** the live preview, rendered through the same interpolation the
   server sends with (`src/lib/email-template.ts`) — a sandboxed iframe for
   HTML, a `<pre>` for text. It personalizes as the first resolved recipient,
@@ -195,7 +197,8 @@ Recipients are **resolved server-side** from `members` / `registrations`
 (`src/lib/admin-emails-api.ts` → `listEmailRecipients` / `sendTemplateEmails`),
 so the count the officer confirms and the addresses that are mailed cannot
 disagree, and each source is gated by its own section: `members` for the
-member list, Submissions for a campaign. Sending goes out in Resend **batch**
+member list, Submissions for a campaign. The manual source needs no section —
+it is plain-admin, like the old console email tab (`assertAdmin`). Sending goes out in Resend **batch**
 requests of 100 (`sendClubEmailBatch` in `resend.server.ts`) — a 75-student
 send is one HTTP call, not a paced loop a serverless timeout could cut short.
 A failed batch comes back as a list of addresses for a retry. The page shows

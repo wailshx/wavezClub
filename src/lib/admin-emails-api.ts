@@ -25,6 +25,9 @@ export type EmailRecipient = EmailTemplateContact;
 
 const RECIPIENT_STATUSES = ["pending", "accepted", "removed"] as const;
 
+/** How many addresses one manual send accepts — a sanity cap, not a quota. */
+export const MAX_MANUAL_RECIPIENTS = 50;
+
 const recipientSpecSchema = z.discriminatedUnion("source", [
   z.object({ source: z.literal("members") }),
   z.object({
@@ -34,6 +37,19 @@ const recipientSpecSchema = z.discriminatedUnion("source", [
     statuses: z.array(z.enum(RECIPIENT_STATUSES)).max(RECIPIENT_STATUSES.length),
     /** null means "either"; true narrows to submissions that were checked in. */
     checkedIn: z.boolean().nullable(),
+  }),
+  z.object({
+    source: z.literal("manual"),
+    entries: z
+      .array(
+        z.object({
+          email: z.string().trim().min(1).max(255),
+          /** Optional personalization: used for {{name}} / {{first_name}}. */
+          name: z.string().trim().max(120).nullable(),
+        }),
+      )
+      .min(1)
+      .max(MAX_MANUAL_RECIPIENTS),
   }),
 ]);
 
@@ -128,10 +144,46 @@ type EmailContext = {
   claims?: { email?: string };
 };
 
+/**
+ * Plain officer check for actions that belong to no single section — the
+ * manual recipient list is typeable by any officer, exactly like the old
+ * console email tab was.
+ */
+async function assertAdmin(context: EmailContext): Promise<void> {
+  const { data, error } = await context.supabase.rpc("has_role", {
+    _user_id: context.userId,
+    _role: "admin",
+  });
+  if (error) throw new Error(`Admin access check failed: ${error.message}`);
+  if (!data) throw new Error("Not authorized");
+}
+
+/** "yasmine.boudiaf@x.dz" → "Yasmine Boudiaf", for a nameless manual address. */
+function nameFromEmail(email: string): string {
+  const local = email.split("@")[0] ?? "";
+  return (
+    local
+      .split(/[._+-]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ") || email
+  );
+}
+
 async function resolveRecipients(
   context: EmailContext,
   spec: EmailRecipientSpec,
 ): Promise<ResolvedEmailRecipients> {
+  if (spec.source === "manual") {
+    await assertAdmin(context);
+    return collectRecipients(
+      spec.entries.map((entry) => {
+        const email = entry.email.trim().toLowerCase();
+        return toRecipient(null, null, entry.name?.trim() || nameFromEmail(email), email);
+      }),
+    );
+  }
+
   if (spec.source === "members") {
     await requireSection(context, "members");
     const { data, error } = await context.supabase
@@ -219,12 +271,7 @@ export const sendTemplateEmails = createServerFn({ method: "POST" })
 export const getEmailSenderInfo = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { data, error } = await context.supabase.rpc("has_role", {
-      _user_id: context.userId,
-      _role: "admin",
-    });
-    if (error) throw new Error(`Admin access check failed: ${error.message}`);
-    if (!data) throw new Error("Not authorized");
+    await assertAdmin(context);
     const { describeClubSender } = await import("@/lib/resend.server");
     return describeClubSender();
   });

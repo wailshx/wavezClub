@@ -1,8 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  AtSign,
   ChevronLeft,
   Code2,
   Megaphone,
@@ -19,6 +20,7 @@ import {
   getEmailSenderInfo,
   listEmailRecipients,
   sendTemplateEmails,
+  MAX_MANUAL_RECIPIENTS,
   type EmailRecipientSpec,
 } from "@/lib/admin-emails-api";
 import {
@@ -80,9 +82,33 @@ function EmailsPage() {
   const [subject, setSubject] = useState("");
   const [htmlBody, setHtmlBody] = useState("");
   const [textBody, setTextBody] = useState("");
-  const [source, setSource] = useState<"members" | "campaign">("members");
+  const [source, setSource] = useState<"members" | "campaign" | "manual">("members");
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [manualText, setManualText] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [debouncedManualText, setDebouncedManualText] = useState("");
+
+  // The count is a server round-trip keyed on the parsed addresses; a short
+  // debounce keeps it from firing on every keystroke while typing.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedManualText(manualText), 350);
+    return () => clearTimeout(timer);
+  }, [manualText]);
+
+  const manualParsed = useMemo(() => {
+    const seen = new Set<string>();
+    const entries: { email: string; name: string | null }[] = [];
+    for (const raw of debouncedManualText.split(/[\s,;]+/)) {
+      const email = raw.trim().toLowerCase();
+      if (!email || seen.has(email)) continue;
+      seen.add(email);
+      entries.push({ email, name: null });
+    }
+    return entries;
+  }, [debouncedManualText]);
+  const manualOverflow = manualParsed.length > MAX_MANUAL_RECIPIENTS;
+  const manualEntries = manualParsed.slice(0, MAX_MANUAL_RECIPIENTS);
 
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const body = format === "html" ? htmlBody : textBody;
@@ -102,6 +128,16 @@ function EmailsPage() {
   });
 
   const spec: EmailRecipientSpec | null = useMemo(() => {
+    if (source === "manual") {
+      if (manualEntries.length === 0) return null;
+      // The name field only makes sense for one address; with several, each
+      // recipient's name falls back to their address on the server.
+      const name = manualEntries.length === 1 ? manualName.trim() || null : null;
+      return {
+        source: "manual",
+        entries: manualEntries.map((entry) => ({ email: entry.email, name })),
+      };
+    }
     if (source === "members") return canMembers ? { source: "members" } : null;
     if (!effectiveCampaignId) return null;
     const statuses: Array<"pending" | "accepted" | "removed"> =
@@ -112,7 +148,7 @@ function EmailsPage() {
       statuses,
       checkedIn: statusFilter === "checked_in" ? true : null,
     };
-  }, [source, canMembers, effectiveCampaignId, statusFilter]);
+  }, [source, canMembers, effectiveCampaignId, statusFilter, manualEntries, manualName]);
 
   const recipientsQuery = useQuery({
     queryKey: ["email-recipients", spec],
@@ -271,7 +307,7 @@ function EmailsPage() {
               <p className="text-xs font-extrabold tracking-wide text-[#6fa0ff] uppercase">
                 Send to
               </p>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <button
                   type="button"
                   onClick={() => setSource("members")}
@@ -308,7 +344,63 @@ function EmailsPage() {
                     The students who applied to one announcement
                   </p>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setSource("manual")}
+                  className={`rounded-2xl border p-4 text-left transition-colors ${
+                    source === "manual"
+                      ? "border-[#2e6bff]/60 bg-[#2e6bff]/15"
+                      : "border-white/10 bg-black/20 hover:border-white/25"
+                  }`}
+                >
+                  <AtSign
+                    className={`size-5 ${source === "manual" ? "text-[#6fa0ff]" : "text-[#94a3c8]"}`}
+                  />
+                  <p className="mt-2 text-sm font-bold text-white">Someone specific</p>
+                  <p className="mt-0.5 text-xs font-semibold text-[#94a3c8]">
+                    Type email addresses by hand
+                  </p>
+                </button>
               </div>
+
+              {source === "manual" && (
+                <div className="mt-4 grid gap-4">
+                  <div>
+                    <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                      Email addresses
+                    </label>
+                    <textarea
+                      rows={3}
+                      className={`${fieldClass} font-mono text-xs`}
+                      value={manualText}
+                      onChange={(e) => setManualText(e.target.value)}
+                      placeholder={"name@example.com\nsecond@example.com"}
+                    />
+                    <p className="mt-1 text-[11px] font-semibold text-[#94a3c8]">
+                      One per line, or separated by commas. Invalid addresses are skipped
+                      automatically.
+                    </p>
+                    {manualOverflow && (
+                      <p className="mt-1 text-[11px] font-bold text-[#fcd34d]">
+                        Only the first {MAX_MANUAL_RECIPIENTS} addresses are used per send.
+                      </p>
+                    )}
+                  </div>
+                  {manualEntries.length === 1 && (
+                    <div>
+                      <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                        Name (optional)
+                      </label>
+                      <input
+                        className={fieldClass}
+                        value={manualName}
+                        onChange={(e) => setManualName(e.target.value)}
+                        placeholder="Yasmine Boudiaf — fills {{first_name}} / {{name}}"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               {source === "campaign" && (
                 <div className="mt-4 grid gap-4">
