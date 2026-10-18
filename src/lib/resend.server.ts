@@ -63,7 +63,10 @@ function resolveClubSender(): { from: string; replyTo: string | undefined } {
 type SendOptions = {
   to: string | string[];
   subject: string;
-  text: string;
+  /** Plain-text body. Optional when `html` is provided (Resend takes either). */
+  text?: string;
+  /** Rendered HTML body, for the admin template emails. */
+  html?: string;
   from?: string;
   replyTo?: string;
 };
@@ -88,13 +91,21 @@ export async function sendResendEmail(opts: SendOptions): Promise<ResendResult> 
     return { ok: false, error: "RESEND_API_KEY is not configured on the server." };
   }
 
+  if (!opts.text && !opts.html) {
+    console.error(
+      `[resend] send skipped — neither text nor html body provided. to=${recipients} subject="${opts.subject}"`,
+    );
+    return { ok: false, error: "The email has no body." };
+  }
+
   try {
     const payload: Record<string, unknown> = {
       from,
       to: opts.to,
       subject: opts.subject,
-      text: opts.text,
     };
+    if (opts.text) payload["text"] = opts.text;
+    if (opts.html) payload["html"] = opts.html;
     if (opts.replyTo) payload["reply_to"] = opts.replyTo;
 
     const res = await fetch(RESEND_API_URL, {
@@ -134,8 +145,110 @@ export async function sendResendEmail(opts: SendOptions): Promise<ResendResult> 
 export async function sendClubEmail(opts: {
   to: string | string[];
   subject: string;
-  text: string;
+  text?: string;
+  html?: string;
 }): Promise<ResendResult> {
   const { from, replyTo } = resolveClubSender();
   return sendResendEmail(replyTo === undefined ? { ...opts, from } : { ...opts, from, replyTo });
+}
+
+/**
+ * The sender identity the next club email will use, for the Emails console
+ * page to show above the composer. `configured` is false when the server is
+ * missing `RESEND_API_KEY` — sending would be a no-op, and the page warns
+ * instead of offering a button that quietly does nothing.
+ */
+export function describeClubSender(): {
+  from: string;
+  replyTo: string | null;
+  configured: boolean;
+} {
+  const { from, replyTo } = resolveClubSender();
+  return { from, replyTo: replyTo ?? null, configured: Boolean(process.env["RESEND_API_KEY"]) };
+}
+
+const RESEND_BATCH_URL = "https://api.resend.com/emails/batch";
+
+/** Resend's batch endpoint takes at most 100 emails per request. */
+export const RESEND_BATCH_LIMIT = 100;
+
+type ClubBatchEmail = {
+  to: string;
+  subject: string;
+  text?: string;
+  html?: string;
+};
+
+type ResendBatchResult = { ok: true; ids: string[] } | { ok: false; error: string };
+
+/**
+ * Send a batch of club emails in one HTTP request (Resend's batch endpoint).
+ *
+ * The Emails page uses this instead of a paced per-recipient loop: 75 students
+ * are one request rather than ~40 seconds of sequential sends that a
+ * serverless timeout could cut in half. Each email is still built for its own
+ * recipient — personalization happens before this point.
+ *
+ * A failed request fails the whole batch (Resend validates every item before
+ * sending any), and the caller reports those addresses back for a retry.
+ */
+export async function sendClubEmailBatch(emails: ClubBatchEmail[]): Promise<ResendBatchResult> {
+  if (emails.length === 0) return { ok: true, ids: [] };
+  if (emails.length > RESEND_BATCH_LIMIT) {
+    return { ok: false, error: `Resend batches take at most ${RESEND_BATCH_LIMIT} emails.` };
+  }
+
+  const apiKey = process.env["RESEND_API_KEY"];
+  const { from, replyTo } = resolveClubSender();
+  const recipients = emails.map((email) => email.to).join(", ");
+
+  if (!apiKey) {
+    console.error(
+      `[resend] RESEND_API_KEY is not set — batch NOT sent. from=${from} to=${recipients}`,
+    );
+    return { ok: false, error: "RESEND_API_KEY is not configured on the server." };
+  }
+
+  try {
+    const payload = emails.map((email) => ({
+      from,
+      to: email.to,
+      subject: email.subject,
+      ...(email.text ? { text: email.text } : {}),
+      ...(email.html ? { html: email.html } : {}),
+      ...(replyTo ? { reply_to: replyTo } : {}),
+    }));
+
+    const res = await fetch(RESEND_BATCH_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const json = (await res.json().catch(() => null)) as {
+      data?: { id?: string }[];
+      message?: string;
+    } | null;
+
+    if (!res.ok) {
+      const detail = json?.message ?? JSON.stringify(json);
+      console.error(
+        `[resend] batch FAILED (status ${res.status}, ${emails.length} emails). from=${from} to=${recipients} error=${detail}`,
+      );
+      return { ok: false, error: detail };
+    }
+
+    const ids = (json?.data ?? []).map((item) => item?.id ?? "");
+    console.log(
+      `[resend] batch sent ${ids.length}/${emails.length} emails from=${from} replyTo=${replyTo ?? "—"}`,
+    );
+    return { ok: true, ids };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[resend] batch threw. to=${recipients} error=${msg}`);
+    return { ok: false, error: msg };
+  }
 }

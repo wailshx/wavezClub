@@ -49,6 +49,7 @@ import {
   Trash2,
   User,
   UserCheck,
+  UserPlus,
   Users,
   Users2,
   Waves,
@@ -86,6 +87,7 @@ import {
   getAdminStatus,
   listMembers,
   updateMember,
+  createMember,
   deleteMember,
   blockMember as blockMemberApi,
   unblockMember as unblockMemberApi,
@@ -110,6 +112,7 @@ import {
   type MemberDocumentKey,
   type AdminPost,
   type AdminPostCampaign,
+  type CreateMemberInput,
 } from "@/lib/admin-api";
 import { MAX_LEADER_DESCRIPTION } from "@/lib/leaders";
 import {
@@ -777,6 +780,16 @@ function AdminPage() {
   const [editing, setEditing] = useState<Member | null>(null);
   const [manageId, setManageId] = useState<string | null>(null);
   const [removeConfirm, setRemoveConfirm] = useState<Member | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newMember, setNewMember] = useState<CreateMemberInput>({
+    first_name: "",
+    last_name: "",
+    email: "",
+    phone: "",
+    level: "L1",
+    department: DEPARTMENTS[0] ?? "",
+    speciality: null,
+  });
   const [postDraft, setPostDraft] = useState<Post | null>(null);
   const [tab, setTab] = useState<AdminTab>(Route.useSearch().tab ?? "dashboard");
   const [blockTarget, setBlockTarget] = useState<Member | null>(null);
@@ -932,6 +945,28 @@ function AdminPage() {
       );
     },
     onError: () => toast.error("Could not save changes"),
+  });
+
+  const addMember = useMutation({
+    mutationFn: (input: CreateMemberInput) => createMember({ data: input }),
+    onSuccess: (created) => {
+      toast.success(`${created.full_name} added to the club`);
+      setAddOpen(false);
+      setNewMember({
+        first_name: "",
+        last_name: "",
+        email: "",
+        phone: "",
+        level: "L1",
+        department: DEPARTMENTS[0] ?? "",
+        speciality: null,
+      });
+      patchMembersCache((prev) => [created as unknown as Member, ...prev]);
+    },
+    // The duplicate-email refusal carries the existing member's name, so the
+    // server's message is worth showing instead of a generic toast.
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not add this member"),
   });
 
   const { data: posts = [] } = useQuery({
@@ -1608,6 +1643,14 @@ function AdminPage() {
                 </button>
               );
             })}
+            <Link
+              to="/gestion/admin/emails"
+              onClick={() => setSidebarOpen(false)}
+              className="admin-nav-item"
+            >
+              <Mail className="size-[18px] shrink-0" />
+              Emails
+            </Link>
           </nav>
 
           <button onClick={openProfile} className="admin-nav-item text-xs">
@@ -1666,6 +1709,25 @@ function AdminPage() {
                 </ShadTooltipContent>
               </ShadTooltip>
             ))}
+            {/* Emails is its own full-width page, not a tab, so it is a link
+                rather than another entry in the filtered tab list. */}
+            <ShadTooltip>
+              <ShadTooltipTrigger asChild>
+                <Link
+                  to="/gestion/admin/emails"
+                  aria-label="Emails"
+                  className="grid size-11 place-items-center rounded-2xl text-[#94a3c8] transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <Mail className="size-5" />
+                </Link>
+              </ShadTooltipTrigger>
+              <ShadTooltipContent
+                side="right"
+                className="border border-white/10 bg-[#101c36] font-semibold text-white"
+              >
+                Emails
+              </ShadTooltipContent>
+            </ShadTooltip>
           </nav>
 
           <div className="mt-auto">
@@ -2358,9 +2420,16 @@ function AdminPage() {
                       className={`${controlClass} w-56 font-semibold`}
                     />
                     <button
+                      onClick={() => setAddOpen(true)}
+                      className="clay-sm ml-auto flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-4 py-2.5 text-sm font-bold text-white shadow-[0_10px_30px_-14px_rgba(46,107,255,0.55)]"
+                    >
+                      <UserPlus className="size-4" />
+                      Add member
+                    </button>
+                    <button
                       onClick={() => exportToExcel(filtered)}
                       disabled={filtered.length === 0}
-                      className="clay-sm ml-auto flex items-center gap-2 rounded-2xl bg-[#2e6bff] px-4 py-2.5 text-sm font-bold text-white shadow-[0_10px_30px_-14px_rgba(46,107,255,0.55)] disabled:opacity-60"
+                      className="clay-sm flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-bold text-[#94a3c8] transition-colors hover:text-white disabled:opacity-60"
                     >
                       <Download className="size-4" />
                       Export .xlsx
@@ -4291,6 +4360,136 @@ function AdminPage() {
             >
               {inviteCopied ? "Copied" : "Copy link"}
             </button>
+          </div>
+        )}
+
+        {addOpen && (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-5 py-10 backdrop-blur-sm">
+            <div className="admin-glass-strong w-full max-w-lg overflow-y-auto rounded-3xl p-7">
+              <h2 className="font-display text-xl font-bold text-white">Add member</h2>
+              <p className="mt-1 text-xs font-semibold text-[#94a3c8]">
+                Adds the member immediately, with an active status — the same profile step an
+                application asks for, without the uploaded documents.
+              </p>
+              <form
+                className="mt-5 grid gap-4 sm:grid-cols-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  addMember.mutate(newMember);
+                }}
+              >
+                <div>
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                    First name
+                  </label>
+                  <input
+                    className={fieldClass}
+                    value={newMember.first_name}
+                    onChange={(e) => setNewMember({ ...newMember, first_name: e.target.value })}
+                    placeholder="Yasmine"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                    Last name
+                  </label>
+                  <input
+                    className={fieldClass}
+                    value={newMember.last_name}
+                    onChange={(e) => setNewMember({ ...newMember, last_name: e.target.value })}
+                    placeholder="Boudiaf"
+                    required
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    className={fieldClass}
+                    value={newMember.email}
+                    onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
+                    placeholder="yasmine@univ-sba.dz"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                    Phone
+                  </label>
+                  <input
+                    className={fieldClass}
+                    value={newMember.phone}
+                    onChange={(e) => setNewMember({ ...newMember, phone: e.target.value })}
+                    placeholder="0550 12 34 56"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                    Level
+                  </label>
+                  <select
+                    className={fieldClass}
+                    value={newMember.level}
+                    onChange={(e) => setNewMember({ ...newMember, level: e.target.value as Level })}
+                  >
+                    {LEVELS.map((lvl) => (
+                      <option key={lvl}>{lvl}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                    Department
+                  </label>
+                  <select
+                    className={fieldClass}
+                    value={newMember.department}
+                    onChange={(e) => setNewMember({ ...newMember, department: e.target.value })}
+                  >
+                    {DEPARTMENTS.map((item) => (
+                      <option key={item}>{item}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                    Speciality
+                  </label>
+                  <select
+                    className={fieldClass}
+                    value={newMember.speciality ?? ""}
+                    onChange={(e) =>
+                      setNewMember({ ...newMember, speciality: e.target.value || null })
+                    }
+                  >
+                    <option value="">Not specified</option>
+                    {SPECIALITIES.map((item) => (
+                      <option key={item}>{item}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="mt-2 flex gap-3 sm:col-span-2">
+                  <button
+                    type="submit"
+                    disabled={addMember.isPending}
+                    className="clay-md rounded-2xl bg-[#2e6bff] px-6 py-3 font-bold text-white shadow-[0_14px_38px_-16px_rgba(46,107,255,0.7)] disabled:opacity-70"
+                  >
+                    {addMember.isPending ? "Adding…" : "Add member"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddOpen(false)}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-bold text-[#94a3c8] transition-colors hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 

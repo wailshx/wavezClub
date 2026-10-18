@@ -15,6 +15,9 @@ export default tseslint.config(
       ".agents",
       "agent",
       "src/integrations/supabase/**",
+      // Its own mini-project (own package.json + node_modules), superseded by
+      // the in-app Emails page; kept only as a reference for the old scripts.
+      "email-templates/**",
     ],
   },
   {

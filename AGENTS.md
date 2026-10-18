@@ -161,6 +161,56 @@ The table's whole row is the click target for the detail view, with a real
 actions cell call `stopPropagation`, so one click is one toggle and acting on a
 student does not also expand them.
 
+### Adding members by hand
+
+The Members tab has an **Add member** button (next to Export .xlsx) that opens
+the same glass panel shape as Edit member: first/last name, email, phone,
+level, department and an optional speciality. `createMember`
+(`src/lib/admin-api.ts`) validates against the `club.ts` lists, refuses an
+address that is already a member before inserting — and catches Postgres
+`23505` too, for the race between that check and the insert — and writes the
+row `status = 'active'`, the exact shape `acceptRegistration` produces, so the
+two paths are indistinguishable downstream. Only the profile step of the
+public wizard is collected: documents are uploaded by the applicant, and the
+custom questions belong to a campaign this member never applied to. The new
+row is prepended to the members cache; the server's duplicate message ("… is
+already a member") is what the error toast shows.
+
+### The Emails page
+
+`/gestion/admin/emails` (file `gestion.admin_.emails.tsx` — the same `admin_`
+opt-out as the submissions page) is the in-app replacement for the CSV scripts
+in `email-templates/`. One page, split in two:
+
+- **Left:** *Send to* — every member's address, or one submission
+  announcement's students filtered by status (All / Pending / Accepted /
+  Removed / Checked in) — then the template: an HTML/Text toggle top-left, a
+  subject, and a monospace body with clickable token chips.
+- **Right:** the live preview, rendered through the same interpolation the
+  server sends with (`src/lib/email-template.ts`) — a sandboxed iframe for
+  HTML, a `<pre>` for text. It personalizes as the first resolved recipient,
+  or as a sample when nobody is resolved yet.
+
+Recipients are **resolved server-side** from `members` / `registrations`
+(`src/lib/admin-emails-api.ts` → `listEmailRecipients` / `sendTemplateEmails`),
+so the count the officer confirms and the addresses that are mailed cannot
+disagree, and each source is gated by its own section: `members` for the
+member list, Submissions for a campaign. Sending goes out in Resend **batch**
+requests of 100 (`sendClubEmailBatch` in `resend.server.ts`) — a 75-student
+send is one HTTP call, not a paced loop a serverless timeout could cut short.
+A failed batch comes back as a list of addresses for a retry. The page shows
+the resolved From / Reply-To (`getEmailSenderInfo` → `describeClubSender`) and
+disables sending when `RESEND_API_KEY` is missing.
+
+Tokens: `{{first_name}}`, `{{last_name}}`, `{{name}}`, `{{email}}` and
+`{{logo_url}}`. The logo URL points at `/wavez-logo-email.png` on the
+canonical origin, so an HTML template can show the club logo without
+attachments — `public/wavez-logo-email.png` has to stay deployed for that.
+
+The old `?tab=email` bulk-mail tab in the console (member picker + plain-text
+drafts in `admin_email_drafts`) is still in the file but has no nav entry; the
+Emails page is the only reachable path to send mail by hand.
+
 ## Verification
 
 Every change must pass, 0 errors:
@@ -196,8 +246,8 @@ npm run build
 |---|---|
 | `SUPABASE_SERVICE_ROLE_KEY` | Used by `client.server.ts` (bypasses RLS for admin operations) |
 | `ADMIN_REQUEST_SIGNING_SECRET` | HMAC signing key for accept/cancel tokens (falls back to insecure dev default locally) |
-| `RESEND_API_KEY` | Resend API key for applicant-facing mail (rejection, member emails) — **secret; do not commit** |
-| `RESEND_FROM` | Optional sender override (e.g. `Wavez Club <no-reply@wavez.club>`). Defaults to the temporary `onboarding@resend.dev` until a verified domain is configured |
+| `RESEND_API_KEY` | Resend API key for applicant-facing mail (rejection) and the Emails page — **secret; do not commit**. Writes are keyed per `wave-z.club`; without it the Emails page disables sending |
+| `RESEND_FROM` | Optional sender override (e.g. `Info_wave-z <Info_wave-z@wave-z.club>`, the sender the interview-invite scripts already use on the verified `wave-z.club` domain). Defaults to the temporary `onboarding@resend.dev` until a verified domain is configured |
 | `TELEGRAM_BOT_TOKEN` | Bot token for the owner's new-admin-request alert — **secret; do not commit** |
 | `TELEGRAM_CHAT_ID` | Chat that receives the owner alert |
 

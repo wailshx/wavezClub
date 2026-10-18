@@ -18,6 +18,7 @@ import {
 import { MAX_LEADER_DESCRIPTION } from "@/lib/leaders";
 import { isValidLinkedinUrl, TEAM_CATEGORIES, type TeamCategory } from "@/lib/team";
 import { requireAnySection, requireSection, SUBMISSION_SECTIONS } from "@/lib/admin-admins-api";
+import { DEPARTMENTS, LEVELS, SPECIALITIES } from "@/lib/club";
 
 export type MemberLevel = "L1" | "L2" | "L3" | "M1" | "M2";
 
@@ -373,6 +374,121 @@ export const updateMember = createServerFn({ method: "POST" })
       .eq("id", member.id);
     if (error) throw new Error(error.message);
     return true;
+  });
+
+export type CreateMemberInput = {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  level: MemberLevel;
+  department: string;
+  speciality: string | null;
+};
+
+/**
+ * Add a member by hand — for someone who joined at the door, with no
+ * application in any campaign.
+ *
+ * The public membership flow is three steps (profile → documents → questions);
+ * this collects only the profile step. The documents are uploaded by the
+ * applicant themselves, and the custom questions belong to a campaign this
+ * member never applied to. The row lands `active` — the same shape
+ * `acceptRegistration` writes — so nothing downstream can tell the two apart.
+ *
+ * `members.email` carries a unique index on lower(email) (migration 0018), so a
+ * duplicate is refused here with names attached instead of a raw constraint
+ * error; the constraint itself is still caught, because the address can be
+ * taken between the check and the insert.
+ */
+export const createMember = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: CreateMemberInput) => input)
+  .handler(async ({ context, data: input }) => {
+    const { supabase } = await requireSection(context, "members");
+
+    const firstName = input.first_name.trim();
+    const lastName = input.last_name.trim();
+    const email = input.email.trim().toLowerCase();
+    const phone = input.phone.trim();
+    const department = input.department.trim();
+    const speciality = input.speciality?.trim() || null;
+
+    if (!firstName) throw new Error("First name is required.");
+    if (!lastName) throw new Error("Last name is required.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 255) {
+      throw new Error("Enter a valid email address.");
+    }
+    if (phone.length < 6) throw new Error("Enter a valid phone number.");
+    if (!(LEVELS as readonly string[]).includes(input.level)) {
+      throw new Error("Choose a valid level.");
+    }
+    if (!(DEPARTMENTS as readonly string[]).includes(department)) {
+      throw new Error("Choose a valid department.");
+    }
+    if (speciality && !(SPECIALITIES as readonly string[]).includes(speciality)) {
+      throw new Error("Choose a valid speciality.");
+    }
+
+    const table = (
+      supabase as unknown as {
+        from: (name: string) => {
+          select: (columns: string) => {
+            ilike: (
+              column: string,
+              pattern: string,
+            ) => PromiseLike<{
+              data: Record<string, unknown>[] | null;
+              error: { message: string } | null;
+            }>;
+          };
+          insert: (row: Record<string, unknown>) => {
+            select: (columns: string) => {
+              single: () => PromiseLike<{
+                data: Record<string, unknown> | null;
+                error: { message: string; code?: string } | null;
+              }>;
+            };
+          };
+        };
+      }
+    ).from("members");
+
+    // `_` and `%` are LIKE wildcards and both are legal in an email address, so
+    // they have to be escaped for this to be an exact case-insensitive hit.
+    const pattern = email.replace(/([\\%_])/g, "\\$1");
+    const { data: rows, error: lookupError } = await table
+      .select("id, full_name")
+      .ilike("email", pattern);
+    if (lookupError) throw new Error(lookupError.message);
+    const existing = (rows ?? [])[0];
+    if (existing) {
+      const existingName = ((existing["full_name"] as string | undefined) ?? "").trim() || email;
+      throw new Error(`${existingName} is already a member (${email}).`);
+    }
+
+    const full_name = `${firstName} ${lastName}`.trim();
+    const { data: inserted, error } = await table
+      .insert({
+        full_name,
+        email,
+        phone,
+        level: input.level,
+        department,
+        speciality,
+        status: "active",
+      })
+      .select("*")
+      .single();
+    if (error) {
+      if (error.code === "23505") {
+        throw new Error(`${full_name} is already a member (${email}).`);
+      }
+      throw new Error(error.message);
+    }
+    if (!inserted) throw new Error("Could not add this member.");
+
+    return { ...inserted, admin_role: null } as unknown as AdminMember;
   });
 
 export const deleteMember = createServerFn({ method: "POST" })
