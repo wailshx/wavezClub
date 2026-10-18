@@ -82,7 +82,17 @@ import {
   TooltipTrigger as ShadTooltipTrigger,
 } from "@/components/ui/tooltip";
 import logo from "@/assets/wavez-logo.png";
-import { DEPARTMENTS, LEVELS, SPECIALITIES, initials, type Level } from "@/lib/club";
+import {
+  CLUB_ROLE_LABELS,
+  DEPARTMENTS,
+  EXCLUSIVE_CLUB_ROLES,
+  LEVELS,
+  MULTI_CLUB_ROLES,
+  SPECIALITIES,
+  initials,
+  type ClubRole,
+  type Level,
+} from "@/lib/club";
 import {
   getAdminStatus,
   listMembers,
@@ -213,6 +223,7 @@ type Member = {
   department: string;
   status: string;
   admin_role: string | null;
+  club_role: ClubRole | null;
   blocked_until: string | null;
   created_at: string;
   school_certificate_url: string | null;
@@ -261,6 +272,45 @@ function prettyRole(role: string | null | undefined) {
     .split("_")
     .map((word) => (word ? `${word[0]}${word.slice(1)}` : word))
     .join(" ");
+}
+
+/**
+ * `<option>`s for the club-role pickers in the add and edit member forms.
+ * One-person roles that someone else holds are disabled and name the holder —
+ * the server refuses them anyway, so offering them would only produce a save
+ * that cannot succeed. `keepMemberId` is the member being edited: their own
+ * role stays selectable.
+ */
+function ClubRoleOptions({
+  holders,
+  keepMemberId,
+}: {
+  holders: Map<ClubRole, Member>;
+  keepMemberId?: string;
+}) {
+  return (
+    <>
+      <optgroup label="Leadership — one person each">
+        {EXCLUSIVE_CLUB_ROLES.map((role) => {
+          const holder = holders.get(role);
+          const takenByOther = holder !== undefined && holder.id !== keepMemberId;
+          return (
+            <option key={role} value={role} disabled={takenByOther}>
+              {CLUB_ROLE_LABELS[role]}
+              {takenByOther ? ` — taken by ${holder.full_name}` : ""}
+            </option>
+          );
+        })}
+      </optgroup>
+      <optgroup label="Team — many members allowed">
+        {MULTI_CLUB_ROLES.map((role) => (
+          <option key={role} value={role}>
+            {CLUB_ROLE_LABELS[role]}
+          </option>
+        ))}
+      </optgroup>
+    </>
+  );
 }
 
 function avatarFallback(name: string | null, email: string | null) {
@@ -789,6 +839,7 @@ function AdminPage() {
     level: "L1",
     department: DEPARTMENTS[0] ?? "",
     speciality: null,
+    club_role: null,
   });
   const [postDraft, setPostDraft] = useState<Post | null>(null);
   const [tab, setTab] = useState<AdminTab>(Route.useSearch().tab ?? "dashboard");
@@ -944,7 +995,10 @@ function AdminPage() {
         prev.map((item) => (item.id === member.id ? { ...item, ...member } : item)),
       );
     },
-    onError: () => toast.error("Could not save changes"),
+    // The club-role refusal names the current holder, so show the server's
+    // message rather than a generic one.
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not save changes"),
   });
 
   const addMember = useMutation({
@@ -960,6 +1014,7 @@ function AdminPage() {
         level: "L1",
         department: DEPARTMENTS[0] ?? "",
         speciality: null,
+        club_role: null,
       });
       patchMembersCache((prev) => [created as unknown as Member, ...prev]);
     },
@@ -1456,10 +1511,12 @@ function AdminPage() {
         if (level !== "all" && member.level !== level) return false;
         if (department !== "all" && member.department !== department) return false;
         if (!term) return true;
+        const roleLabel = member.club_role ? CLUB_ROLE_LABELS[member.club_role] : "";
         return (
           member.full_name.toLowerCase().includes(term) ||
           member.email.toLowerCase().includes(term) ||
-          member.phone.toLowerCase().includes(term)
+          member.phone.toLowerCase().includes(term) ||
+          roleLabel.toLowerCase().includes(term)
         );
       })
       .sort((a, b) => {
@@ -1470,6 +1527,21 @@ function AdminPage() {
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   }, [members, level, department, search]);
+
+  // Who holds each one-person club role, for the add/edit member pickers.
+  // Members without a role are simply absent from the map.
+  const clubRoleHolders = useMemo(() => {
+    const holders = new Map<ClubRole, Member>();
+    for (const member of members) {
+      if (
+        member.club_role &&
+        (EXCLUSIVE_CLUB_ROLES as readonly string[]).includes(member.club_role)
+      ) {
+        holders.set(member.club_role, member);
+      }
+    }
+    return holders;
+  }, [members]);
 
   const managedMember = members.find((member) => member.id === manageId) ?? null;
 
@@ -1488,9 +1560,10 @@ function AdminPage() {
       return;
     }
     const aoa = [
-      ["Name", "Level", "Department", "Speciality", "Status", "Blocked Until"],
+      ["Name", "Club Role", "Level", "Department", "Speciality", "Status", "Blocked Until"],
       ...rows.map((m) => [
         m.full_name,
+        m.club_role ? CLUB_ROLE_LABELS[m.club_role] : "",
         m.level,
         m.department,
         m.speciality ?? "",
@@ -1499,7 +1572,15 @@ function AdminPage() {
       ]),
     ];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [{ wch: 22 }, { wch: 6 }, { wch: 28 }, { wch: 28 }, { wch: 10 }, { wch: 14 }];
+    ws["!cols"] = [
+      { wch: 22 },
+      { wch: 18 },
+      { wch: 6 },
+      { wch: 28 },
+      { wch: 28 },
+      { wch: 10 },
+      { wch: 14 },
+    ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Members");
     XLSX.writeFile(wb, `wavez-members-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -2443,6 +2524,7 @@ function AdminPage() {
                           <th className="px-5 py-3">Member</th>
                           <th className="px-5 py-3">Join date</th>
                           <th className="px-5 py-3">Status</th>
+                          <th className="px-5 py-3">Club role</th>
                           <th className="px-5 py-3">Department/Level</th>
                           <th className="px-5 py-3 text-right">Manage</th>
                         </tr>
@@ -2451,7 +2533,7 @@ function AdminPage() {
                         {isLoading && (
                           <tr>
                             <td
-                              colSpan={5}
+                              colSpan={6}
                               className="px-5 py-8 text-center font-semibold text-[#94a3c8]"
                             >
                               Loading…
@@ -2461,7 +2543,7 @@ function AdminPage() {
                         {filtered.length === 0 && !isLoading && (
                           <tr>
                             <td
-                              colSpan={5}
+                              colSpan={6}
                               className="px-5 py-8 text-center font-semibold text-[#94a3c8]"
                             >
                               No matching members found.
@@ -2506,6 +2588,17 @@ function AdminPage() {
                                   }`}
                                 >
                                   {member.status}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3.5">
+                              {member.club_role ? (
+                                <span className="inline-block rounded-full border border-[#818cf8]/40 bg-[#818cf8]/15 px-3 py-1 text-[11px] font-extrabold text-[#c7d2fe] whitespace-nowrap uppercase">
+                                  {CLUB_ROLE_LABELS[member.club_role] ?? member.club_role}
+                                </span>
+                              ) : (
+                                <span className="text-xs font-semibold text-[#64748b]">
+                                  No role yet
                                 </span>
                               )}
                             </td>
@@ -4472,6 +4565,24 @@ function AdminPage() {
                     ))}
                   </select>
                 </div>
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                    Club role
+                  </label>
+                  <select
+                    className={fieldClass}
+                    value={newMember.club_role ?? ""}
+                    onChange={(e) =>
+                      setNewMember({
+                        ...newMember,
+                        club_role: e.target.value ? (e.target.value as ClubRole) : null,
+                      })
+                    }
+                  >
+                    <option value="">No club role yet</option>
+                    <ClubRoleOptions holders={clubRoleHolders} />
+                  </select>
+                </div>
                 <div className="mt-2 flex gap-3 sm:col-span-2">
                   <button
                     type="submit"
@@ -4606,6 +4717,27 @@ function AdminPage() {
                       <option key={item}>{item}</option>
                     ))}
                   </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase">
+                    Club role
+                  </label>
+                  <select
+                    className={fieldClass}
+                    value={editing.club_role ?? ""}
+                    onChange={(e) =>
+                      setEditing({
+                        ...editing,
+                        club_role: e.target.value ? (e.target.value as ClubRole) : null,
+                      })
+                    }
+                  >
+                    <option value="">No club role yet</option>
+                    <ClubRoleOptions holders={clubRoleHolders} keepMemberId={editing.id} />
+                  </select>
+                  <p className="mt-1.5 text-[11px] font-semibold text-[#94a3c8]">
+                    The role is what they do in the club; the department is where they study.
+                  </p>
                 </div>
                 <div className="mt-2 flex gap-3 sm:col-span-2">
                   <button

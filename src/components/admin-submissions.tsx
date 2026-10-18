@@ -22,6 +22,7 @@ import {
   deleteRegistration,
   getRegistrationDocumentUrl,
   listCampaignRegistrations,
+  listClubRoleHolders,
   removeRegistration,
   toggleRegistrationCheckIn,
   type AdminCampaign,
@@ -34,7 +35,13 @@ import {
   type CampaignQuestion,
   type CampaignQuestionType,
 } from "@/lib/registrations";
-import { initials } from "@/lib/club";
+import {
+  CLUB_ROLE_LABELS,
+  EXCLUSIVE_CLUB_ROLES,
+  initials,
+  MULTI_CLUB_ROLES,
+  type ClubRole,
+} from "@/lib/club";
 
 const fieldClass =
   "clay-sm mt-1.5 w-full rounded-2xl bg-background px-4 py-2.5 text-sm font-semibold outline-none focus:ring-2 focus:ring-brand";
@@ -809,6 +816,7 @@ export function CampaignSubmissions({
 }) {
   const queryClient = useQueryClient();
   const [acceptTarget, setAcceptTarget] = useState<AdminRegistration | null>(null);
+  const [acceptRole, setAcceptRole] = useState<ClubRole | null>(null);
   const [removeTarget, setRemoveTarget] = useState<AdminRegistration | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminRegistration | null>(null);
 
@@ -817,8 +825,19 @@ export function CampaignSubmissions({
     queryFn: () => listCampaignRegistrations({ data: campaign.id }),
   });
 
+  // Taken one-person roles, so the accept dialog can disable them instead of
+  // letting the server refuse after the officer committed to a choice. Only a
+  // membership accept creates a member row, so event campaigns skip the query.
+  const { data: roleHolders = [] } = useQuery({
+    queryKey: ["club-role-holders"],
+    queryFn: () => listClubRoleHolders(),
+    enabled: campaign.kind === "membership",
+  });
+  const holderByRole = new Map(roleHolders.map((holder) => [holder.role, holder.member_name]));
+
   const accept = useMutation({
-    mutationFn: (id: string) => acceptRegistration({ data: id }),
+    mutationFn: (input: { id: string; clubRole: ClubRole | null }) =>
+      acceptRegistration({ data: { registrationId: input.id, clubRole: input.clubRole } }),
     onSuccess: () => {
       toast.success(
         campaign.kind === "event"
@@ -826,8 +845,10 @@ export function CampaignSubmissions({
           : "Submission accepted — member added",
       );
       setAcceptTarget(null);
+      setAcceptRole(null);
       queryClient.invalidateQueries({ queryKey: ["campaign-registrations", campaign.id] });
       queryClient.invalidateQueries({ queryKey: ["members"] });
+      queryClient.invalidateQueries({ queryKey: ["club-role-holders"] });
       queryClient.invalidateQueries({ queryKey: ["admin-campaigns"] });
     },
     onError: (error) => toast.error(error.message ?? "Could not accept the submission"),
@@ -874,7 +895,10 @@ export function CampaignSubmissions({
         isLoading={isLoading}
         onBack={() => undefined}
         hideBack
-        onAccept={(registration) => setAcceptTarget(registration)}
+        onAccept={(registration) => {
+          setAcceptRole(null);
+          setAcceptTarget(registration);
+        }}
         onRemove={(registration) => setRemoveTarget(registration)}
         onCheckIn={(registration) =>
           checkIn.mutate({ id: registration.id, checked_in: !registration.checked_in })
@@ -914,9 +938,46 @@ export function CampaignSubmissions({
                       This student hasn&apos;t been checked in for interview yet.
                     </p>
                   )}
+                  {campaign.kind !== "event" && (
+                    <div className="mt-4">
+                      <label className="text-xs font-extrabold tracking-wide text-[#94a3c8] uppercase">
+                        Club role
+                      </label>
+                      <select
+                        value={acceptRole ?? ""}
+                        onChange={(event) =>
+                          setAcceptRole((event.target.value || null) as ClubRole | null)
+                        }
+                        className={fieldClass}
+                      >
+                        <option value="">No club role yet</option>
+                        <optgroup label="Leadership — one person each">
+                          {EXCLUSIVE_CLUB_ROLES.map((role) => {
+                            const holder = holderByRole.get(role);
+                            return (
+                              <option key={role} value={role} disabled={Boolean(holder)}>
+                                {CLUB_ROLE_LABELS[role]}
+                                {holder ? ` — taken by ${holder}` : ""}
+                              </option>
+                            );
+                          })}
+                        </optgroup>
+                        <optgroup label="Team — many members allowed">
+                          {MULTI_CLUB_ROLES.map((role) => (
+                            <option key={role} value={role}>
+                              {CLUB_ROLE_LABELS[role]}
+                            </option>
+                          ))}
+                        </optgroup>
+                      </select>
+                      <p className="mt-1.5 text-[11px] font-semibold text-[#94a3c8]">
+                        The department stays as submitted — the role is what they do in the club.
+                      </p>
+                    </div>
+                  )}
                   <div className="mt-6 flex gap-3">
                     <button
-                      onClick={() => accept.mutate(acceptTarget.id)}
+                      onClick={() => accept.mutate({ id: acceptTarget.id, clubRole: acceptRole })}
                       disabled={accept.isPending}
                       className="clay-md inline-flex items-center gap-2 rounded-2xl bg-[#34d399] px-6 py-3 font-bold text-[#04121a] shadow-[0_14px_38px_-16px_rgba(52,211,153,0.6)] disabled:opacity-70"
                     >

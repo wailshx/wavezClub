@@ -18,7 +18,12 @@ import {
 import { MAX_LEADER_DESCRIPTION } from "@/lib/leaders";
 import { isValidLinkedinUrl, TEAM_CATEGORIES, type TeamCategory } from "@/lib/team";
 import { requireAnySection, requireSection, SUBMISSION_SECTIONS } from "@/lib/admin-admins-api";
-import { DEPARTMENTS, LEVELS, SPECIALITIES } from "@/lib/club";
+import { DEPARTMENTS, isClubRole, LEVELS, SPECIALITIES, type ClubRole } from "@/lib/club";
+import {
+  assertClubRoleAvailable,
+  exclusiveRoleConflictError,
+  isExclusiveRoleConflict,
+} from "@/lib/club-roles";
 
 export type MemberLevel = "L1" | "L2" | "L3" | "M1" | "M2";
 
@@ -33,6 +38,8 @@ export type AdminMember = {
   department: string;
   status: string;
   admin_role: string | null;
+  /** Club-side role (President, Media Member, …) — separate from `admin_role`. */
+  club_role: ClubRole | null;
   blocked_until: string | null;
   created_at: string;
   /** Object path in the private `identity-documents` bucket (nullable — optional uploads). */
@@ -128,16 +135,18 @@ type UserRoleRow = {
   admin_role: string | null;
 };
 
-type LooseResponse = { error: { message: string } | null; data?: unknown };
+type LooseError = { message: string; code?: string; details?: string };
+
+type LooseResponse = { error: LooseError | null; data?: unknown };
 
 type LooseTable = {
   select: (columns: string) => Promise<LooseResponse>;
-  insert: (rows: Record<string, unknown>) => Promise<{ error: { message: string } | null }>;
+  insert: (rows: Record<string, unknown>) => Promise<{ error: LooseError | null }>;
   update: (patch: Record<string, unknown>) => {
-    eq: (column: string, value: unknown) => Promise<{ error: { message: string } | null }>;
+    eq: (column: string, value: unknown) => Promise<{ error: LooseError | null }>;
   };
   delete: () => {
-    eq: (column: string, value: unknown) => Promise<{ error: { message: string } | null }>;
+    eq: (column: string, value: unknown) => Promise<{ error: LooseError | null }>;
   };
 };
 
@@ -360,6 +369,14 @@ export const updateMember = createServerFn({ method: "POST" })
   .validator((member: AdminMember) => member)
   .handler(async ({ context, data: member }) => {
     const { supabase } = await requireSection(context, "members");
+
+    const clubRole = member.club_role ?? null;
+    if (clubRole !== null && !isClubRole(clubRole)) {
+      throw new Error("Choose a valid club role.");
+    }
+    // Keeping your own one-person role is fine; taking someone else's is not.
+    await assertClubRoleAvailable(supabase, clubRole, { allowMemberId: member.id });
+
     const { error } = await (supabase.from("members") as unknown as LooseTable)
       .update({
         full_name: member.full_name,
@@ -370,9 +387,15 @@ export const updateMember = createServerFn({ method: "POST" })
         level: member.level,
         department: member.department,
         status: member.status,
+        club_role: clubRole,
       })
       .eq("id", member.id);
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (clubRole && isExclusiveRoleConflict(error)) {
+        throw await exclusiveRoleConflictError(supabase, clubRole);
+      }
+      throw new Error(error.message);
+    }
     return true;
   });
 
@@ -384,6 +407,7 @@ export type CreateMemberInput = {
   level: MemberLevel;
   department: string;
   speciality: string | null;
+  club_role: ClubRole | null;
 };
 
 /**
@@ -429,6 +453,10 @@ export const createMember = createServerFn({ method: "POST" })
     if (speciality && !(SPECIALITIES as readonly string[]).includes(speciality)) {
       throw new Error("Choose a valid speciality.");
     }
+    const clubRole = input.club_role ?? null;
+    if (clubRole !== null && !isClubRole(clubRole)) {
+      throw new Error("Choose a valid club role.");
+    }
 
     const table = (
       supabase as unknown as {
@@ -467,6 +495,10 @@ export const createMember = createServerFn({ method: "POST" })
       throw new Error(`${existingName} is already a member (${email}).`);
     }
 
+    // One-person roles can only be held once. The pre-check names the holder;
+    // the partial unique index is what holds when two adds race (below).
+    await assertClubRoleAvailable(supabase, clubRole);
+
     const full_name = `${firstName} ${lastName}`.trim();
     const { data: inserted, error } = await table
       .insert({
@@ -477,10 +509,14 @@ export const createMember = createServerFn({ method: "POST" })
         department,
         speciality,
         status: "active",
+        club_role: clubRole,
       })
       .select("*")
       .single();
     if (error) {
+      if (clubRole && isExclusiveRoleConflict(error)) {
+        throw await exclusiveRoleConflictError(supabase, clubRole);
+      }
       if (error.code === "23505") {
         throw new Error(`${full_name} is already a member (${email}).`);
       }

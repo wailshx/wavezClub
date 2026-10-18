@@ -32,6 +32,7 @@ Until the Supabase CLI is linked to this project (`supabase link --project-ref p
 | `0024_convert_flagged_functions_to_invoker.sql` | Clears the six `*_security_definer_function_executable` Security Advisor WARNs by converting the four flagged functions to `SECURITY INVOKER`, with RLS/grant support instead of bypass: a `USING (is_open = true)` SELECT policy on `registration_campaigns` for anon + authenticated (the counterpart to the open-campaign RPCs now running as the caller), and for `update_own_profile` an own-row UPDATE policy plus `GRANT UPDATE (display_name, avatar_url)` — column-level, so `role`/`disabled_at`/`user_id` stay untouchable now that the DEFINER wrapper is gone. `get_dashboard_stats` stays DEFINER on purpose (service_role only, outside the Advisor's scope). Only behaviour change: `has_role` about someone else's `user_id` now answers false. Re-running it is safe |
 | `0025_lock_user_roles_table_grants.sql` | Closes what `0024` opened. `information_schema.column_privileges` expands table-level grants across columns, and `0024`'s verification output showed that means anon **and** authenticated held table-level `INSERT/UPDATE/SELECT/REFERENCES` on `user_roles` (Supabase default privileges on new tables — `0000` only ever granted `SELECT`; the rest came along for the ride, with RLS and no write policy as the only gate). `0024`'s own-row UPDATE policy plus that table-level UPDATE let an officer `PATCH` their own row: clear `disabled_at` after a revocation, or overwrite `admin_role`. Grants are additive, so the column-level `GRANT UPDATE (display_name, avatar_url)` narrowed nothing. This revokes `ALL` from anon/authenticated and re-states exactly what is needed (`SELECT` for authenticated, the two profile columns) — every real writer already goes through `supabaseAdmin`. Ends with four verification queries; if query 2 shows leftover DML on anon/authenticated, the grant was column-level instead and needs a per-column `REVOKE` |
 | `0026_add_team_member_bio.sql` | Adds nullable `team_members.bio` (max 600 in the admin form, the muted-grey public paragraph). The migration deliberately only *lists* over-80 `role_title` rows instead of moving them — splitting "what belongs in a title vs a bio" is a human call, and the admin form blocks saving while the title is over 80 chars. `saveTeamMember` validates both lengths server-side; the public card clamps the bio to 3 lines with a "Read more" dialog |
+| `0027_member_club_roles.sql` | Adds nullable `members.club_role` — the club-side role (President, Media Member, …), separate from `admin_role` (console permission) and `department` (where they study). A partial unique index (`members_exclusive_club_role_idx`) makes the eight one-person roles singular in the database; the four team roles are outside it. The app pre-checks and names the holder; the index is what holds when two accepts race — its `23505` becomes the same message. No CHECK constraint: the vocabulary lives in `src/lib/club.ts`, same as department/speciality. Existing rows stay NULL ("no role decided yet"). **Run before deploying the build** — every member write now sends `club_role` |
 
 ### Announcements = submissions only
 
@@ -174,7 +175,40 @@ two paths are indistinguishable downstream. Only the profile step of the
 public wizard is collected: documents are uploaded by the applicant, and the
 custom questions belong to a campaign this member never applied to. The new
 row is prepended to the members cache; the server's duplicate message ("… is
-already a member") is what the error toast shows.
+already a member") is what the error toast shows. Its form also carries the
+optional **Club role** picker (below).
+
+### Club roles vs departments
+
+Departments say where a student studies; the club role says what they do in the
+club. The public application form only ever asks for the department — a club
+role is set by an officer, never by the applicant.
+
+The vocabulary lives in `src/lib/club.ts`. Eight roles are one-person
+(`EXCLUSIVE_CLUB_ROLES`): president, vice president, the HR/Media/Dev leaders
+and their vice roles. Four are multi-person (`MULTI_CLUB_ROLES`): co-member,
+media member, HR member, wave-z member.
+
+**Three write paths, one guard.** Accepting a membership submission, Add
+member, and Edit member all go through `assertClubRoleAvailable`
+(`src/lib/club-roles.ts`). The accept dialog (`CampaignSubmissions` in
+`src/components/admin-submissions.tsx`) shows a role picker — disabled options
+name the current holder (`— taken by X`) — and `acceptRegistration` now takes
+`{ registrationId, clubRole }`; the member row is created with `club_role` in
+the same write. Event submissions skip all of this: they create no member row,
+so their accept stays a plain confirm. Keeping your own role while editing is
+allowed (`allowMemberId`). The picker can never be trusted to be current, so
+the server refuses a taken role regardless — `members_exclusive_club_role_idx`
+holds when two officers accept at the same moment, and its `23505` is
+translated into the same "… already holds the …" message instead of surfacing
+raw.
+
+The accept dialog's holder list comes from `listClubRoleHolders`
+(`src/lib/admin-registrations-api.ts`), gated by the Submissions section (not
+Members) — the officers who review submissions need it even without the
+Members tab. The Members page derives the same map client-side from the
+members cache. The members table gained a "Club role" chip column, the search
+box matches role labels, and Export .xlsx carries a Club Role column.
 
 ### The Emails page
 

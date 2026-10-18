@@ -4,7 +4,12 @@ import { z } from "zod";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
-import type { Level } from "@/lib/club";
+import { CLUB_ROLES, EXCLUSIVE_CLUB_ROLES, type ClubRole, type Level } from "@/lib/club";
+import {
+  assertClubRoleAvailable,
+  exclusiveRoleConflictError,
+  isExclusiveRoleConflict,
+} from "@/lib/club-roles";
 import type { CampaignKind, CampaignQuestion } from "@/lib/registrations";
 import { requireAnySection, SUBMISSION_SECTIONS } from "@/lib/admin-admins-api";
 
@@ -50,10 +55,11 @@ export type RegistrationDocumentKey = "school_certificate" | "identity_card";
 
 // ─── Loose Supabase wrappers (tables absent from generated types) ───────────
 
-type MutateResult = { error: { message: string } | null };
+type MutateResult = { error: { message: string; code?: string; details?: string } | null };
 type SelectResult<T> = { data: T[] | null; error: { message: string } | null };
 type SelectChain<T> = {
   eq(column: string, value: unknown): Promise<SelectResult<T>>;
+  in(column: string, values: readonly string[]): Promise<SelectResult<T>>;
   ilike(column: string, pattern: string): Promise<SelectResult<T>>;
 } & PromiseLike<SelectResult<T>>;
 type EqChain = {
@@ -112,6 +118,17 @@ const saveCampaignInputSchema = z
   );
 
 export type SaveCampaignInput = z.infer<typeof saveCampaignInputSchema>;
+
+/**
+ * Accepting a membership submission also decides the new member's club role.
+ * The column is nullable — "no role decided yet" is a valid answer — and a
+ * multi-person role is always allowed; the one-person ones are checked in the
+ * handler.
+ */
+const acceptRegistrationInputSchema = z.object({
+  registrationId: z.string().trim().min(1),
+  clubRole: z.enum(CLUB_ROLES).nullable().default(null),
+});
 
 // ─── Server functions ───────────────────────────────────────────────────────
 
@@ -222,14 +239,16 @@ export const listCampaignRegistrations = createServerFn({ method: "GET" })
 
 /**
  * Accept a pending registration.
- * Membership drives → a matching member row is created.
+ * Membership drives → a matching member row is created, with the club role the
+ * officer picked in the accept dialog (nullable — not every member has one yet).
  * Event sign-ups → just marked accepted (no Members row — they join for the event only).
  */
 export const acceptRegistration = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .validator((registrationId: string) => registrationId)
-  .handler(async ({ context, data: registrationId }) => {
+  .validator((input: unknown) => acceptRegistrationInputSchema.parse(input))
+  .handler(async ({ context, data: input }) => {
     const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
+    const { registrationId, clubRole } = input;
 
     const { data } = await registrationsTable(supabase).select("*").eq("id", registrationId);
     const registration = (data ?? [])[0] as unknown as AdminRegistration | undefined;
@@ -262,6 +281,11 @@ export const acceptRegistration = createServerFn({ method: "POST" })
         );
       }
 
+      // One-person roles can only be held once. This check names the holder in
+      // the error; `members_exclusive_club_role_idx` is what still holds when
+      // two officers accept at the same moment, and its 23505 is translated below.
+      await assertClubRoleAvailable(supabase, clubRole);
+
       const member: Record<string, unknown> = {
         full_name: `${registration.first_name} ${registration.last_name}`.trim(),
         email,
@@ -269,11 +293,17 @@ export const acceptRegistration = createServerFn({ method: "POST" })
         level: registration.school_year,
         department: registration.department,
         status: "active",
+        club_role: clubRole,
         school_certificate_url: registration.school_certificate_url ?? null,
         identity_card_url: registration.identity_card_url ?? null,
       };
       const { error: memberError } = await membersTable(supabase).insert(member);
-      if (memberError) throw new Error(memberError.message);
+      if (memberError) {
+        if (clubRole && isExclusiveRoleConflict(memberError)) {
+          throw await exclusiveRoleConflictError(supabase, clubRole);
+        }
+        throw new Error(memberError.message);
+      }
     }
 
     const { error: updateError } = await registrationsTable(supabase)
@@ -282,6 +312,28 @@ export const acceptRegistration = createServerFn({ method: "POST" })
     if (updateError) throw new Error(updateError.message);
 
     return true;
+  });
+
+/**
+ * Who currently holds each one-person club role.
+ *
+ * The accept dialog uses this to disable taken roles and name the holder, so
+ * the picker shows the same answer the server enforces. Gated by the
+ * Submissions section (not Members): the officers who accept submissions need
+ * this list even when they cannot open the Members tab.
+ */
+export const listClubRoleHolders = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase } = await requireAnySection(context, ...SUBMISSION_SECTIONS);
+    const { data, error } = await membersTable(supabase)
+      .select("club_role, full_name")
+      .in("club_role", EXCLUSIVE_CLUB_ROLES);
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as unknown as { club_role: ClubRole; full_name: string }[]).map((row) => ({
+      role: row.club_role,
+      member_name: row.full_name,
+    }));
   });
 
 /** Mark a registration as removed — it stays out of Members. */
