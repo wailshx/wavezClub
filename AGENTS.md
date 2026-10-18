@@ -75,9 +75,13 @@ matching registration" picker (or "Remove link") instead.
 
 The link is **nullable on purpose**: an announcement can be written before its
 campaign exists. The public card resolves `campaign_id` against
-`list_open_campaigns`, and renders a non-clickable "Registration opening soon"
-state when the link is missing *or* the campaign is closed — never a dead link
-into "This registration has closed".
+`list_open_campaigns`, and renders a non-clickable red "Registrations are closed"
+state (lock icon, blossom red) when the link is missing *or* the campaign is
+closed — never a dead link into "This registration has closed". The amber
+"Registration opening soon" wording is reserved for the `soon` teaser type, so
+"closed" and "opening soon" can never be confused. In the admin console the
+Application panel's toggle reads red "Registrations closed" when the linked
+campaign's `is_open` is false.
 
 | Piece | Path |
 |---|---|

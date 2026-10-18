@@ -5,6 +5,7 @@ import {
   CalendarDays,
   Compass,
   Hourglass,
+  Lock,
   MapPin,
   Megaphone,
   Pin,
@@ -96,15 +97,16 @@ function UrgencyChip({ eventDate }: { eventDate: string }) {
  *  · title → subtitle → body descend in size and weight, so the eye lands on the
  *    title first, the promise second, the detail last;
  *  · one CTA that opens the application form *inside this card*, plus a trust line.
- *    Only the submission types get that far: a `soon` teaser ends in a calm
- *    "Registration opening soon" with its opening date, and a plain announcement
- *    ends after the body — neither is ever clickable.
+ *    Only the submission types get that far: a `soon` teaser ends in a calm amber
+ *    "Registration opening soon" with its opening date, and a closed submission
+ *    ends in a red "Registrations are closed" lock — a plain announcement ends
+ *    after the body. None of them is ever clickable.
  *
  * The application lives in the card: there is no separate registration page.
  * The CTA reveals the form in place, and the campaign decides what that form is —
  * the membership wizard (profile, two uploads, questions) or the single-step event
- * form. When the campaign is missing or closed the button is replaced by a plain
- * note, because a link into a closed registration is worse than no link.
+ * form. When the campaign is missing or closed the button is replaced by a red
+ * closed state, because a link into a closed registration is worse than no link.
  *
  * `preview` drops the CTA (a draft must not look clickable) and inherits the
  * caller's colour tokens, so the admin console can render it live.
@@ -172,6 +174,16 @@ function AnnouncementCard({
 
             {event_date && <UrgencyChip eventDate={event_date} />}
             {type === "soon" && opens_at && <UrgencyChip eventDate={opens_at} />}
+
+            {/* A closed submission announces itself up top, so the red state is
+                legible at a glance in the feed — not only down at the CTA.
+                Skipped in the admin preview, which can't know the open state. */}
+            {isSubmission && !formCampaign && !preview && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-blossom/15 px-3.5 py-1.5 text-[11px] font-extrabold tracking-widest text-blossom-foreground uppercase">
+                <Lock aria-hidden="true" className="size-3" strokeWidth={2.5} />
+                Registrations closed
+              </span>
+            )}
 
             {is_pinned && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-brand/25 px-3.5 py-1.5 text-[11px] font-extrabold tracking-widest text-brand uppercase md:ml-auto">
@@ -257,11 +269,14 @@ function AnnouncementCard({
                 )
               ) : (
                 <>
-                  {/* Deliberately not a button — see the component docblock. */}
-                  <span className="inline-flex items-center gap-2.5 rounded-2xl border-2 border-dashed border-foreground/20 px-8 py-4 text-base font-bold text-muted-foreground md:text-lg">
+                  {/* Deliberately not a button — see the component docblock.
+                      Blossom red marks this as a firm "closed" state, distinct
+                      from the amber `soon` teaser further down. */}
+                  <span className="inline-flex items-center gap-2.5 rounded-2xl border-2 border-dashed border-blossom/45 bg-blossom/10 px-8 py-4 text-base font-bold text-blossom-foreground md:text-lg">
+                    <Lock aria-hidden="true" className="size-5" />
                     {SUBMISSION_CTA_CLOSED_LABEL}
                   </span>
-                  <p className="text-sm font-bold text-muted-foreground">
+                  <p className="text-sm font-bold text-blossom-foreground/80">
                     {SUBMISSION_CTA_CLOSED_NOTE}
                   </p>
                 </>

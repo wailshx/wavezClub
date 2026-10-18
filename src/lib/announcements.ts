@@ -110,14 +110,16 @@ export const SUBMISSION_CTA_NOTE: Record<SubmissionType, string> = {
 };
 
 /**
- * Shown in place of the button when the announcement has no campaign linked, or
- * its campaign is closed. The form could be opened, but RLS only accepts the
- * insert while the campaign is open, so the card says so up front instead of
- * letting the student fill everything in only to fail on submit.
+ * Shown in place of the button when the announcement is a submission type
+ * (open day / event) but is not currently accepting entries — its campaign is
+ * closed, or none has been linked yet. RLS only accepts the insert while the
+ * campaign is open, so the card says so up front instead of letting the student
+ * fill everything in only to fail on submit. Reads as a firm, final state
+ * (blossom red), deliberately distinct from the amber `soon` teaser below,
+ * which promises the form is still coming.
  */
-export const SUBMISSION_CTA_CLOSED_LABEL = "Registration opening soon";
-export const SUBMISSION_CTA_CLOSED_NOTE =
-  "This submission isn't accepting entries yet — check back shortly.";
+export const SUBMISSION_CTA_CLOSED_LABEL = "Registrations are closed";
+export const SUBMISSION_CTA_CLOSED_NOTE = "This submission is no longer accepting applications.";
 
 /** A row in the announcements feed (public columns). */
 export type SubmissionAnnouncement = {

@@ -2891,21 +2891,21 @@ function AdminPage() {
                                 className={`flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-extrabold uppercase transition-colors ${
                                   postDraft.campaign.is_open
                                     ? "border-[#34d399]/40 bg-[#34d399]/10 text-[#6ee7b7]"
-                                    : "border-white/10 bg-white/5 text-[#94a3c8]"
+                                    : "border-[#f43f5e]/40 bg-[#f43f5e]/10 text-[#fda4af]"
                                 }`}
                               >
                                 <span
                                   className={`size-2 rounded-full ${
-                                    postDraft.campaign.is_open ? "bg-[#34d399]" : "bg-[#94a3c8]"
+                                    postDraft.campaign.is_open ? "bg-[#34d399]" : "bg-[#f43f5e]"
                                   }`}
                                 />
-                                {postDraft.campaign.is_open ? "Accepting" : "Closed"}
+                                {postDraft.campaign.is_open ? "Accepting" : "Registrations closed"}
                               </button>
                             </div>
                             <p className="mt-2 text-[11px] font-semibold text-[#94a3c8]">
                               {postDraft.campaign.is_open
-                                ? "The card shows the application form. Closing it keeps the announcement published but replaces the form with “Registration opening soon”."
-                                : "The announcement stays on the home page, but the card will show “Registration opening soon” instead of a form."}
+                                ? "The card shows the application form. Closing it keeps the announcement published but replaces the form with a red “Registrations are closed” state."
+                                : "The announcement stays on the home page, but the card shows a red “Registrations are closed” state instead of a form."}
                             </p>
 
                             {/* Attach an existing registration: the escape hatch for
@@ -3213,9 +3213,9 @@ function AdminPage() {
                               </p>
                             )}
                             {campaign && !campaign.is_open && (
-                              <p className="mt-3 border-t border-white/10 pt-3 text-xs font-semibold text-[#94a3c8]">
-                                Registration closed — the card shows “Registration opening soon”
-                                instead of a form.
+                              <p className="mt-3 border-t border-white/10 pt-3 text-xs font-semibold text-[#fda4af]">
+                                Registrations are closed — the card shows a red “Registrations are
+                                closed” state instead of a form.
                               </p>
                             )}
                           </>

@@ -306,10 +306,10 @@ export function RegistrationsView({
           className={`rounded-full border px-3 py-1.5 text-[11px] font-extrabold tracking-wide uppercase ${
             campaign.is_open
               ? "border-[#34d399]/40 bg-[#34d399]/15 text-[#6ee7b7]"
-              : "border-white/10 bg-white/5 text-[#94a3c8]"
+              : "border-[#f43f5e]/40 bg-[#f43f5e]/15 text-[#fda4af]"
           }`}
         >
-          {campaign.is_open ? "Open" : "Closed"}
+          {campaign.is_open ? "Open" : "Registrations closed"}
         </span>
       </div>
 
