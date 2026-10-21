@@ -69,6 +69,40 @@ export function isExclusiveClubRole(role: ClubRole): boolean {
   return (EXCLUSIVE_CLUB_ROLES as readonly string[]).includes(role);
 }
 
+/**
+ * Audiences for club-wide mail. "All members" includes people with no club
+ * role yet; every other group is a role or team. Leadership is the eight
+ * one-person roles, so a media leader appears under Leadership rather than
+ * Media — the groups never overlap.
+ */
+export const MEMBER_AUDIENCE_VALUES = [
+  "all",
+  "leadership",
+  "co_member",
+  "media_member",
+  "hr_member",
+  "wavez_member",
+] as const;
+
+export type MemberAudience = (typeof MEMBER_AUDIENCE_VALUES)[number];
+
+export const MEMBER_AUDIENCES: readonly {
+  value: MemberAudience;
+  label: string;
+  roles: readonly ClubRole[];
+}[] = [
+  { value: "all", label: "All members", roles: [] },
+  { value: "leadership", label: "Leadership members", roles: EXCLUSIVE_CLUB_ROLES },
+  { value: "co_member", label: "Co-members", roles: ["co_member"] },
+  { value: "media_member", label: "Media members", roles: ["media_member"] },
+  { value: "hr_member", label: "HR members", roles: ["hr_member"] },
+  { value: "wavez_member", label: "Wave-Z members", roles: ["wavez_member"] },
+];
+
+export function rolesForMemberAudience(audience: MemberAudience): readonly ClubRole[] {
+  return MEMBER_AUDIENCES.find((option) => option.value === audience)?.roles ?? [];
+}
+
 export const memberSchema = z.object({
   full_name: z.string().trim().min(2, "Please enter your full name").max(100),
   age: z.coerce.number().int().min(15, "Age must be 15 or more").max(99),

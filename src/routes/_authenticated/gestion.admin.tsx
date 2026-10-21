@@ -12,6 +12,7 @@ import {
   Ban,
   CalendarDays,
   Check,
+  ClipboardCheck,
   ClipboardList,
   Download,
   ExternalLink,
@@ -794,6 +795,7 @@ function AdminPage() {
   const queryClient = useQueryClient();
   const [level, setLevel] = useState("all");
   const [department, setDepartment] = useState("all");
+  const [clubRole, setClubRole] = useState("all");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Member | null>(null);
   const [manageId, setManageId] = useState<string | null>(null);
@@ -1485,6 +1487,10 @@ function AdminPage() {
       .filter((member) => {
         if (level !== "all" && member.level !== level) return false;
         if (department !== "all" && member.department !== department) return false;
+        if (clubRole === "none" && member.club_role) return false;
+        if (clubRole !== "all" && clubRole !== "none" && member.club_role !== clubRole) {
+          return false;
+        }
         if (!term) return true;
         const roleLabel = member.club_role ? CLUB_ROLE_LABELS[member.club_role] : "";
         return (
@@ -1501,7 +1507,7 @@ function AdminPage() {
         if (nameDiff !== 0) return nameDiff;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
-  }, [members, level, department, search]);
+  }, [members, level, department, clubRole, search]);
 
   // Who holds each one-person club role, for the add/edit member pickers.
   // Members without a role are simply absent from the map.
@@ -2314,6 +2320,28 @@ function AdminPage() {
                         </option>
                       ))}
                     </select>
+                    <select
+                      value={clubRole}
+                      onChange={(e) => setClubRole(e.target.value)}
+                      className={controlClass}
+                    >
+                      <option value="all">All club roles</option>
+                      <option value="none">No role yet</option>
+                      <optgroup label="Leadership">
+                        {EXCLUSIVE_CLUB_ROLES.map((role) => (
+                          <option key={role} value={role}>
+                            {CLUB_ROLE_LABELS[role]}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Team">
+                        {MULTI_CLUB_ROLES.map((role) => (
+                          <option key={role} value={role}>
+                            {CLUB_ROLE_LABELS[role]}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
                     <input
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
@@ -2327,6 +2355,13 @@ function AdminPage() {
                       <UserPlus className="size-4" />
                       Add member
                     </button>
+                    <Link
+                      to="/gestion/admin/checkin"
+                      className="clay-sm flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-bold text-[#94a3c8] transition-colors hover:text-white"
+                    >
+                      <ClipboardCheck className="size-4" />
+                      Check-in
+                    </Link>
                     <button
                       onClick={() => exportToExcel(filtered)}
                       disabled={filtered.length === 0}

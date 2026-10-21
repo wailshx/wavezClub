@@ -33,6 +33,7 @@ Until the Supabase CLI is linked to this project (`supabase link --project-ref p
 | `0025_lock_user_roles_table_grants.sql` | Closes what `0024` opened. `information_schema.column_privileges` expands table-level grants across columns, and `0024`'s verification output showed that means anon **and** authenticated held table-level `INSERT/UPDATE/SELECT/REFERENCES` on `user_roles` (Supabase default privileges on new tables — `0000` only ever granted `SELECT`; the rest came along for the ride, with RLS and no write policy as the only gate). `0024`'s own-row UPDATE policy plus that table-level UPDATE let an officer `PATCH` their own row: clear `disabled_at` after a revocation, or overwrite `admin_role`. Grants are additive, so the column-level `GRANT UPDATE (display_name, avatar_url)` narrowed nothing. This revokes `ALL` from anon/authenticated and re-states exactly what is needed (`SELECT` for authenticated, the two profile columns) — every real writer already goes through `supabaseAdmin`. Ends with four verification queries; if query 2 shows leftover DML on anon/authenticated, the grant was column-level instead and needs a per-column `REVOKE` |
 | `0026_add_team_member_bio.sql` | Adds nullable `team_members.bio` (max 600 in the admin form, the muted-grey public paragraph). The migration deliberately only *lists* over-80 `role_title` rows instead of moving them — splitting "what belongs in a title vs a bio" is a human call, and the admin form blocks saving while the title is over 80 chars. `saveTeamMember` validates both lengths server-side; the public card clamps the bio to 3 lines with a "Read more" dialog |
 | `0027_member_club_roles.sql` | Adds nullable `members.club_role` — the club-side role (President, Media Member, …), separate from `admin_role` (console permission) and `department` (where they study). A partial unique index (`members_exclusive_club_role_idx`) makes the eight one-person roles singular in the database; the four team roles are outside it. The app pre-checks and names the holder; the index is what holds when two accepts race — its `23505` becomes the same message. No CHECK constraint: the vocabulary lives in `src/lib/club.ts`, same as department/speciality. Existing rows stay NULL ("no role decided yet"). **Run before deploying the build** — every member write now sends `club_role` |
+| `0028_member_checkins.sql` | One active attendance sheet: `member_checkins` (one row per member, `present`/`absent`, no row = not checked in yet) + admin-only RLS. Backs `/gestion/admin/checkin`. Reset is a plain DELETE, so the page starts the next event from 0; there is no event history by design. **Run before deploying the build.** |
 
 ### Announcements = submissions only
 
@@ -210,18 +211,37 @@ Members tab. The Members page derives the same map client-side from the
 members cache. The members table gained a "Club role" chip column, the search
 box matches role labels, and Export .xlsx carries a Club Role column.
 
+### Event check-in
+
+`/gestion/admin/checkin` (file `gestion.admin_.checkin.tsx`, the same `admin_`
+opt-out as the emails page) is the door sheet: every member listed with
+Present / Absent toggles. It is reached from the **Check-in** button in the
+Members tab, and it is gated by the Members section on both the page and the
+server functions (`src/lib/member-checkins-api.ts`).
+
+The sheet is **one active event**, not an archive. A row exists only once a
+member is marked; clicking the active toggle again removes the mark, so a
+member can be present, absent, or not checked in yet. Changes autosave after
+one second (and the Save button flushes the queue immediately), which is what
+makes leaving the page safe. **Reset** is destructive and confirmed: it deletes
+every row and starts the next event from 0. If a history of past events is ever
+needed, that is a schema change (an event/session id), not a UI tweak.
+
 ### The Emails page
 
 `/gestion/admin/emails` (file `gestion.admin_.emails.tsx` — the same `admin_`
 opt-out as the submissions page) is the in-app replacement for the CSV scripts
 in `email-templates/`. One page, split in two:
 
-- **Left:** *Send to* — every member's address, one submission announcement's
-  students filtered by status (All / Pending / Accepted / Removed / Checked
-  in), or addresses typed by hand (up to 50 per send; an optional name fills
-  `{{first_name}}` when there is exactly one address, otherwise each name
-  falls back to its address) — then the template: an HTML/Text toggle
-  top-left, a subject, and a monospace body with clickable token chips.
+- **Left:** *Send to* — members (all, or one club-role audience: Leadership,
+  Co-members, Media, HR, Wave-Z — the vocabulary is `MEMBER_AUDIENCES` in
+  `src/lib/club.ts`), one submission announcement's students filtered by
+  status (All / Pending / Accepted / Removed / Checked in), or addresses
+  typed by hand (up to 50 per send; an optional name fills `{{first_name}}`
+  when there is exactly one address, otherwise each name falls back to its
+  address) — then the template: an HTML/Text toggle top-left, a subject, and
+  a monospace body with clickable token chips. Leadership is the eight
+  one-person roles, so a media leader is in Leadership, not Media.
 - **Right:** the live preview, rendered through the same interpolation the
   server sends with (`src/lib/email-template.ts`) — a sandboxed iframe for
   HTML, a `<pre>` for text. It personalizes as the first resolved recipient,

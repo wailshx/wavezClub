@@ -16,6 +16,7 @@ import { Route as GestionIndexRouteImport } from './routes/gestion/index'
 import { Route as GestionSetPasswordRouteImport } from './routes/gestion/set-password'
 import { Route as AuthenticatedGestionAdminRouteImport } from './routes/_authenticated/gestion.admin'
 import { Route as GestionReviewTokenRouteImport } from './routes/gestion/review.$token'
+import { Route as AuthenticatedGestionAdminCheckinRouteImport } from './routes/_authenticated/gestion.admin_.checkin'
 import { Route as AuthenticatedGestionAdminEmailsRouteImport } from './routes/_authenticated/gestion.admin_.emails'
 import { Route as AuthenticatedGestionAdminSubmissionsCampaignIdRouteImport } from './routes/_authenticated/gestion.admin_.submissions.$campaignId'
 
@@ -54,6 +55,12 @@ const GestionReviewTokenRoute = GestionReviewTokenRouteImport.update({
   path: '/gestion/review/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedGestionAdminCheckinRoute =
+  AuthenticatedGestionAdminCheckinRouteImport.update({
+    id: '/gestion/admin_/checkin',
+    path: '/gestion/admin/checkin',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedGestionAdminEmailsRoute =
   AuthenticatedGestionAdminEmailsRouteImport.update({
     id: '/gestion/admin_/emails',
@@ -74,6 +81,7 @@ export interface FileRoutesByFullPath {
   '/gestion/': typeof GestionIndexRoute
   '/gestion/admin': typeof AuthenticatedGestionAdminRoute
   '/gestion/review/$token': typeof GestionReviewTokenRoute
+  '/gestion/admin/checkin': typeof AuthenticatedGestionAdminCheckinRoute
   '/gestion/admin/emails': typeof AuthenticatedGestionAdminEmailsRoute
   '/gestion/admin/submissions/$campaignId': typeof AuthenticatedGestionAdminSubmissionsCampaignIdRoute
 }
@@ -84,6 +92,7 @@ export interface FileRoutesByTo {
   '/gestion': typeof GestionIndexRoute
   '/gestion/admin': typeof AuthenticatedGestionAdminRoute
   '/gestion/review/$token': typeof GestionReviewTokenRoute
+  '/gestion/admin/checkin': typeof AuthenticatedGestionAdminCheckinRoute
   '/gestion/admin/emails': typeof AuthenticatedGestionAdminEmailsRoute
   '/gestion/admin/submissions/$campaignId': typeof AuthenticatedGestionAdminSubmissionsCampaignIdRoute
 }
@@ -96,6 +105,7 @@ export interface FileRoutesById {
   '/gestion/': typeof GestionIndexRoute
   '/_authenticated/gestion/admin': typeof AuthenticatedGestionAdminRoute
   '/gestion/review/$token': typeof GestionReviewTokenRoute
+  '/_authenticated/gestion/admin_/checkin': typeof AuthenticatedGestionAdminCheckinRoute
   '/_authenticated/gestion/admin_/emails': typeof AuthenticatedGestionAdminEmailsRoute
   '/_authenticated/gestion/admin_/submissions/$campaignId': typeof AuthenticatedGestionAdminSubmissionsCampaignIdRoute
 }
@@ -108,6 +118,7 @@ export interface FileRouteTypes {
     | '/gestion/'
     | '/gestion/admin'
     | '/gestion/review/$token'
+    | '/gestion/admin/checkin'
     | '/gestion/admin/emails'
     | '/gestion/admin/submissions/$campaignId'
   fileRoutesByTo: FileRoutesByTo
@@ -118,6 +129,7 @@ export interface FileRouteTypes {
     | '/gestion'
     | '/gestion/admin'
     | '/gestion/review/$token'
+    | '/gestion/admin/checkin'
     | '/gestion/admin/emails'
     | '/gestion/admin/submissions/$campaignId'
   id:
@@ -129,6 +141,7 @@ export interface FileRouteTypes {
     | '/gestion/'
     | '/_authenticated/gestion/admin'
     | '/gestion/review/$token'
+    | '/_authenticated/gestion/admin_/checkin'
     | '/_authenticated/gestion/admin_/emails'
     | '/_authenticated/gestion/admin_/submissions/$campaignId'
   fileRoutesById: FileRoutesById
@@ -193,6 +206,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GestionReviewTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/gestion/admin_/checkin': {
+      id: '/_authenticated/gestion/admin_/checkin'
+      path: '/gestion/admin/checkin'
+      fullPath: '/gestion/admin/checkin'
+      preLoaderRoute: typeof AuthenticatedGestionAdminCheckinRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/gestion/admin_/emails': {
       id: '/_authenticated/gestion/admin_/emails'
       path: '/gestion/admin/emails'
@@ -212,12 +232,14 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedGestionAdminRoute: typeof AuthenticatedGestionAdminRoute
+  AuthenticatedGestionAdminCheckinRoute: typeof AuthenticatedGestionAdminCheckinRoute
   AuthenticatedGestionAdminEmailsRoute: typeof AuthenticatedGestionAdminEmailsRoute
   AuthenticatedGestionAdminSubmissionsCampaignIdRoute: typeof AuthenticatedGestionAdminSubmissionsCampaignIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedGestionAdminRoute: AuthenticatedGestionAdminRoute,
+  AuthenticatedGestionAdminCheckinRoute: AuthenticatedGestionAdminCheckinRoute,
   AuthenticatedGestionAdminEmailsRoute: AuthenticatedGestionAdminEmailsRoute,
   AuthenticatedGestionAdminSubmissionsCampaignIdRoute:
     AuthenticatedGestionAdminSubmissionsCampaignIdRoute,

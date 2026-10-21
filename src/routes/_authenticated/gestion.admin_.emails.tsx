@@ -23,6 +23,7 @@ import {
   MAX_MANUAL_RECIPIENTS,
   type EmailRecipientSpec,
 } from "@/lib/admin-emails-api";
+import { MEMBER_AUDIENCES, type MemberAudience } from "@/lib/club";
 import {
   EMAIL_TEMPLATE_TOKENS,
   renderEmailTemplate,
@@ -83,6 +84,7 @@ function EmailsPage() {
   const [htmlBody, setHtmlBody] = useState("");
   const [textBody, setTextBody] = useState("");
   const [source, setSource] = useState<"members" | "campaign" | "manual">("members");
+  const [memberAudience, setMemberAudience] = useState<MemberAudience>("all");
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [manualText, setManualText] = useState("");
@@ -138,7 +140,9 @@ function EmailsPage() {
         entries: manualEntries.map((entry) => ({ email: entry.email, name })),
       };
     }
-    if (source === "members") return canMembers ? { source: "members" } : null;
+    if (source === "members") {
+      return canMembers ? { source: "members", audience: memberAudience } : null;
+    }
     if (!effectiveCampaignId) return null;
     const statuses: Array<"pending" | "accepted" | "removed"> =
       statusFilter === "all" || statusFilter === "checked_in" ? [] : [statusFilter];
@@ -148,7 +152,15 @@ function EmailsPage() {
       statuses,
       checkedIn: statusFilter === "checked_in" ? true : null,
     };
-  }, [source, canMembers, effectiveCampaignId, statusFilter, manualEntries, manualName]);
+  }, [
+    source,
+    canMembers,
+    memberAudience,
+    effectiveCampaignId,
+    statusFilter,
+    manualEntries,
+    manualName,
+  ]);
 
   const recipientsQuery = useQuery({
     queryKey: ["email-recipients", spec],
@@ -323,7 +335,7 @@ function EmailsPage() {
                   />
                   <p className="mt-2 text-sm font-bold text-white">Members</p>
                   <p className="mt-0.5 text-xs font-semibold text-[#94a3c8]">
-                    Every club member&apos;s email address
+                    All members, or one club-role group
                   </p>
                 </button>
                 <button
@@ -362,6 +374,34 @@ function EmailsPage() {
                   </p>
                 </button>
               </div>
+
+              {source === "members" && (
+                <div className="mt-4">
+                  <label
+                    htmlFor="email-member-audience"
+                    className="text-xs font-extrabold text-muted-foreground uppercase"
+                  >
+                    Audience
+                  </label>
+                  <select
+                    id="email-member-audience"
+                    className={fieldClass}
+                    value={memberAudience}
+                    onChange={(event) => setMemberAudience(event.target.value as MemberAudience)}
+                  >
+                    {MEMBER_AUDIENCES.map((audience) => (
+                      <option key={audience.value} value={audience.value}>
+                        {audience.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[11px] font-semibold text-[#94a3c8]">
+                    {memberAudience === "all"
+                      ? "Everyone on the members list — including members who have no club role yet."
+                      : "Only members holding this club role. Members with no role are not included."}
+                  </p>
+                </div>
+              )}
 
               {source === "manual" && (
                 <div className="mt-4 grid gap-4">

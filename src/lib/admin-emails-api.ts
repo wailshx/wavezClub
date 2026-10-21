@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
 import { requireAnySection, requireSection, SUBMISSION_SECTIONS } from "@/lib/admin-admins-api";
+import { MEMBER_AUDIENCE_VALUES, rolesForMemberAudience, type ClubRole } from "@/lib/club";
 import {
   renderEmailTemplate,
   splitContactName,
@@ -29,7 +30,11 @@ const RECIPIENT_STATUSES = ["pending", "accepted", "removed"] as const;
 export const MAX_MANUAL_RECIPIENTS = 50;
 
 const recipientSpecSchema = z.discriminatedUnion("source", [
-  z.object({ source: z.literal("members") }),
+  z.object({
+    source: z.literal("members"),
+    /** Empty/omitted means every member; otherwise one club-role group. */
+    audience: z.enum(MEMBER_AUDIENCE_VALUES).default("all"),
+  }),
   z.object({
     source: z.literal("campaign"),
     campaignId: z.string().uuid(),
@@ -90,6 +95,21 @@ const registrationsTable = (supabase: SupabaseClient<Database>) =>
       from: (name: string) => { select: (columns: string) => RegistrationsQuery };
     }
   ).from("registrations");
+
+/** `club_role` is newer than the generated types, so members go through a loose shape too. */
+type MembersQuery = PromiseLike<{
+  data: RawRow[] | null;
+  error: { message: string } | null;
+}> & {
+  order: (column: string, options: { ascending: boolean }) => MembersQuery;
+};
+
+const membersTable = (supabase: SupabaseClient<Database>) =>
+  (
+    supabase as unknown as {
+      from: (name: string) => { select: (columns: string) => MembersQuery };
+    }
+  ).from("members");
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -186,13 +206,18 @@ async function resolveRecipients(
 
   if (spec.source === "members") {
     await requireSection(context, "members");
-    const { data, error } = await context.supabase
-      .from("members")
-      .select("full_name, email")
+    const audienceRoles = rolesForMemberAudience(spec.audience);
+    const { data, error } = await membersTable(context.supabase)
+      .select("full_name, email, club_role")
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
+    const rows = (data ?? []).filter(
+      (row) =>
+        audienceRoles.length === 0 ||
+        audienceRoles.includes(String(row["club_role"] ?? "") as ClubRole),
+    );
     return collectRecipients(
-      (data ?? []).map((row) => toRecipient(null, null, row.full_name, row.email)),
+      rows.map((row) => toRecipient(null, null, row["full_name"], row["email"])),
     );
   }
 
