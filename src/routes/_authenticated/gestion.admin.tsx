@@ -324,6 +324,10 @@ const SubmissionsGrowthChart = lazy(() =>
   })),
 );
 
+// Keep console lists fresh while an officer is watching a tab. React Query
+// pauses these while the window is hidden, so a background tab costs nothing.
+const ADMIN_POLL_MS = 60_000;
+
 const chartFallback = (
   <div className="h-full w-full animate-pulse rounded-2xl bg-white/[0.04]" aria-hidden="true" />
 );
@@ -865,6 +869,7 @@ function AdminPage() {
     queryKey: ["members"],
     enabled: isAdmin === true && canAccess("members"),
     queryFn: () => listMembers(),
+    refetchInterval: ADMIN_POLL_MS,
   });
 
   // Campaigns are no longer edited in their own tab, but the announcement form
@@ -875,6 +880,7 @@ function AdminPage() {
     queryKey: ["admin-campaigns"],
     enabled: isAdmin === true && canManageSubmissions(),
     queryFn: () => listRegistrationCampaigns(),
+    refetchInterval: ADMIN_POLL_MS,
   });
 
   const campaignById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
@@ -992,6 +998,7 @@ function AdminPage() {
     queryKey: ["admin-posts"],
     enabled: isAdmin === true && canAccess("events"),
     queryFn: () => listPosts(),
+    refetchInterval: ADMIN_POLL_MS,
   });
 
   const {
@@ -1002,7 +1009,7 @@ function AdminPage() {
     queryKey: ["dashboard-stats"],
     enabled: isAdmin === true,
     queryFn: () => getDashboardStats(),
-    refetchInterval: 60_000,
+    refetchInterval: ADMIN_POLL_MS,
   });
 
   const savePost = useMutation({
@@ -1101,6 +1108,7 @@ function AdminPage() {
     queryKey: ["admin-leaders"],
     enabled: isAdmin === true && canAccess("leaders"),
     queryFn: () => listLeaders(),
+    refetchInterval: ADMIN_POLL_MS,
   });
 
   const saveLeader = useMutation({
@@ -1201,12 +1209,14 @@ function AdminPage() {
     queryKey: ["admin-team"],
     enabled: isAdmin === true && canAccess("team"),
     queryFn: () => listTeam(),
+    refetchInterval: ADMIN_POLL_MS,
   });
 
   const { data: admins = [] } = useQuery({
     queryKey: ["admin-management-admins"],
     enabled: isAdmin === true && canManageAdmins,
     queryFn: () => listAdmins(),
+    refetchInterval: ADMIN_POLL_MS,
   });
 
   // Officer applications. The emailed accept/cancel link is the primary path,
@@ -1215,6 +1225,7 @@ function AdminPage() {
     queryKey: ["admin-requests"],
     enabled: isAdmin === true && canManageAdmins,
     queryFn: () => listAdminRequests(),
+    refetchInterval: ADMIN_POLL_MS,
   });
 
   const pendingRequests = adminRequests.filter((request) => request.status === "pending");

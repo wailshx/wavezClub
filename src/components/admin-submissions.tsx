@@ -823,6 +823,8 @@ export function CampaignSubmissions({
   const { data: registrations = [], isLoading } = useQuery({
     queryKey: ["campaign-registrations", campaign.id],
     queryFn: () => listCampaignRegistrations({ data: campaign.id }),
+    // New applications should appear while an officer is reviewing this inbox.
+    refetchInterval: 60_000,
   });
 
   // Taken one-person roles, so the accept dialog can disable them instead of
@@ -832,6 +834,7 @@ export function CampaignSubmissions({
     queryKey: ["club-role-holders"],
     queryFn: () => listClubRoleHolders(),
     enabled: campaign.kind === "membership",
+    refetchInterval: 60_000,
   });
   const holderByRole = new Map(roleHolders.map((holder) => [holder.role, holder.member_name]));
 

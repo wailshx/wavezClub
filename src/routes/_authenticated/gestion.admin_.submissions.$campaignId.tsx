@@ -31,6 +31,7 @@ function CampaignSubmissionsPage() {
   } = useQuery({
     queryKey: ["admin-campaigns"],
     queryFn: () => listRegistrationCampaigns(),
+    refetchInterval: 60_000,
   });
 
   const campaign = campaigns?.find((item) => item.id === campaignId);
