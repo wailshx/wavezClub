@@ -436,3 +436,24 @@ Single-use enforced by DB status check; expires after 7 days.
 - **signin** (default): owner + approved admins sign in.
 - **request** (toggled via "Apply for a club role"): collects first/last name, department, email, phone. Calls `submitAdminRequestAction`. Shows persistent confirmation card on success.
 - **owner-setup**: owner-only account creation (signs up only if email matches `OWNER_EMAIL`, else steers to request form).
+
+## Performance notes
+
+- **The homepage data is fetched in the route loader** (`src/routes/index.tsx`) with
+  `Promise.all`, then handed to React Query as `initialData` (`staleTime: 60s`).
+  That is what puts announcements, campaigns, leaders and team in the first HTML.
+  Do not move those fetches back into the component: client-only queries paint
+  empty sections and wait for four Supabase round-trips after hydration.
+- **Images are WebP** (`src/assets/*.webp`). The hero is preloaded with
+  `fetchPriority="high"`; keep new photos compressed (the old 957 KB hero PNG was
+  the LCP). Logos are sized for their largest rendering (≤320px), not 500px.
+- **`ScrollReveal` no longer uses framer-motion** — it is a CSS transition driven
+  by one IntersectionObserver (`src/components/scroll-reveal.tsx`,
+  `src/lib/use-reduced-motion.ts`). framer-motion is only still imported by
+  `/about` (nav pill indicator); do not import it into shared/public components.
+- **Admin heavy libraries are lazy**: `xlsx` is a dynamic import inside
+  `exportToExcel`, and the dashboard charts live in
+  `src/components/admin-dashboard-charts.tsx` behind `React.lazy`. Keep recharts
+  and xlsx out of static imports so the console shell stays ~200 KB.
+- The router preloads on intent (`defaultPreload: "intent"`, 30s stale), so
+  hovering a link downloads its code/data before the click.

@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, Mail } from "lucide-react";
 
-import logo from "@/assets/wavez-logo.png";
+import logo from "@/assets/wavez-logo.webp";
 
 /**
  * Club's official public mailbox (CLUB_EMAIL in env, see AGENTS.md). Public

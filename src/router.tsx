@@ -9,7 +9,11 @@ export const getRouter = () => {
     routeTree,
     context: { queryClient },
     scrollRestoration: true,
-    defaultPreloadStaleTime: 0,
+    // Hovering/focusing a link starts loading its code and loader data, so the
+    // click itself is instant. 30s keeps that preloaded data reusable — 0 would
+    // throw it away and refetch on every navigation.
+    defaultPreload: "intent",
+    defaultPreloadStaleTime: 30_000,
   });
 
   return router;

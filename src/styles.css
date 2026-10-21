@@ -103,6 +103,43 @@
 
 /* Circuit board motif — freeform accent */
 
+/* Scroll reveal — opacity/transform only. ScrollReveal flips
+   `data-reveal-state="visible"` when the element enters the viewport; the
+   transition below does the rest, so the public pages do not need an animation
+   runtime for a fade-in. */
+.reveal {
+  opacity: 0;
+  transform: translateY(var(--reveal-from, 30px)) scale(var(--reveal-scale, 1));
+  transition:
+    opacity var(--reveal-duration, 0.6s) var(--reveal-ease, ease-out)
+      var(--reveal-delay, 0s),
+    transform var(--reveal-duration, 0.6s) var(--reveal-ease, ease-out)
+      var(--reveal-delay, 0s);
+}
+
+.reveal:not([data-reveal-state="visible"]) {
+  will-change: opacity, transform;
+}
+
+.reveal[data-reveal-state="visible"] {
+  opacity: 1;
+  transform: none;
+  will-change: auto;
+}
+
+/* Transform-only variant: no fade, just the slide/settle. */
+.reveal--transform-only {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
 /* Hero aurora orbs — soft blue/teal gradient orbs drifting behind the glass panel */
 .hero-orbs {
   position: absolute;

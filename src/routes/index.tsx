@@ -16,12 +16,12 @@ import { LeadersCarousel } from "@/components/leaders-carousel";
 import { MentorsSection } from "@/components/mentors-section";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import facultyLogo from "@/assets/faculty-logo.png";
-import heroPhoto from "@/assets/hero-photo.png";
-import aboutPhoto from "@/assets/about-photo.jpg";
-import wavezLogoMark from "@/assets/wavez-logo-mark.png";
-import { fetchPublicLeaders } from "@/lib/leaders";
-import { fetchPublicTeamMembers } from "@/lib/team";
+import facultyLogo from "@/assets/faculty-logo.webp";
+import heroPhoto from "@/assets/hero-photo.webp";
+import aboutPhoto from "@/assets/about-photo.webp";
+import wavezLogoMark from "@/assets/wavez-logo-mark.webp";
+import { fetchPublicLeaders, type ClubLeader } from "@/lib/leaders";
+import { fetchPublicTeamMembers, type ClubTeamMember } from "@/lib/team";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -39,7 +39,22 @@ export const Route = createFileRoute("/")({
           "A student-led scientific community turning engineering theory into real projects, workshops and competitions.",
       },
     ],
+    links: [{ rel: "preload", as: "image", href: heroPhoto, fetchPriority: "high" }],
   }),
+  // Fetch the homepage feeds on the server so the first HTML already contains
+  // them. Before this, the page painted empty sections and waited for JS, then
+  // four Supabase round-trips. The loaders run in parallel with the page shell.
+  loader: async () => {
+    const [posts, openCampaigns, leaders, team] = await Promise.all([
+      fetchPublicPosts(),
+      fetchOpenCampaigns(),
+      // Officers and mentors are decorative: a failed fetch must not take the
+      // announcements down with it.
+      fetchPublicLeaders(supabase).catch(() => [] as ClubLeader[]),
+      fetchPublicTeamMembers(supabase).catch(() => [] as ClubTeamMember[]),
+    ]);
+    return { posts, openCampaigns, leaders, team };
+  },
   component: Index,
 });
 
@@ -66,55 +81,71 @@ function toAnnouncement(row: {
   };
 }
 
+async function fetchPublicPosts(): Promise<SubmissionAnnouncement[]> {
+  const { data, error } = await supabase
+    .from("posts")
+    .select(
+      "id, title, subtitle, body, location, event_date, opens_at, submission_type, is_pinned, created_at, campaign_id",
+    )
+    .eq("published", true)
+    .order("is_pinned", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(9);
+  if (error) throw error;
+  return ((data ?? []) as unknown as Parameters<typeof toAnnouncement>[0][]).map(toAnnouncement);
+}
+
+/**
+ * The open-campaign list is no longer rendered as its own section. It is still
+ * needed here as the single source of truth for "is this announcement's
+ * submission actually accepting entries?" — `list_open_campaigns` already
+ * filters on `is_open`, so membership of this map IS the open check. The whole
+ * campaign is handed to the card, not just its id, because the card renders the
+ * application form in place and needs the questions and document rules.
+ */
+async function fetchOpenCampaigns(): Promise<OpenCampaign[]> {
+  const rpc = supabase as unknown as {
+    rpc: (
+      fn: string,
+      args?: Record<string, unknown>,
+    ) => Promise<{ data: unknown; error: { message: string } | null }>;
+  };
+  const { data, error } = await rpc.rpc("list_open_campaigns");
+  if (error) throw error;
+  return (data ?? []) as OpenCampaign[];
+}
+
 function Index() {
-  const { data: posts = [], isLoading: postsLoading } = useQuery({
+  // Seeded from the route loader: real content in the first paint. The queries
+  // stay for background freshness — `staleTime` keeps that from re-fetching
+  // what the loader just delivered.
+  const initial = Route.useLoaderData();
+  const { data: posts = initial.posts, isLoading: postsLoading } = useQuery({
     queryKey: ["public-posts"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("posts")
-        .select(
-          "id, title, subtitle, body, location, event_date, opens_at, submission_type, is_pinned, created_at, campaign_id",
-        )
-        .eq("published", true)
-        .order("is_pinned", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(9);
-      if (error) throw error;
-      return ((data ?? []) as unknown as Parameters<typeof toAnnouncement>[0][]).map(
-        toAnnouncement,
-      );
-    },
+    queryFn: fetchPublicPosts,
+    initialData: initial.posts,
+    staleTime: 60_000,
   });
 
-  const { data: leaders = [] } = useQuery({
+  const { data: leaders = initial.leaders } = useQuery({
     queryKey: ["public-leaders"],
     queryFn: () => fetchPublicLeaders(supabase),
+    initialData: initial.leaders,
+    staleTime: 60_000,
   });
 
-  const { data: team = [] } = useQuery({
+  const { data: team = initial.team } = useQuery({
     queryKey: ["public-team"],
     queryFn: () => fetchPublicTeamMembers(supabase),
+    initialData: initial.team,
+    staleTime: 60_000,
   });
 
-  // The open-campaign list is no longer rendered as its own section. It is still
-  // needed here, as the single source of truth for "is this announcement's
-  // submission actually accepting entries?" — `list_open_campaigns` already
-  // filters on `is_open`, so membership of this map IS the open check. The whole
-  // campaign is handed to the card, not just its id, because the card now renders
-  // the application form in place and needs the questions and document rules.
-  const { data: openCampaigns = [] } = useQuery({
+  const { data: openCampaigns = initial.openCampaigns } = useQuery({
     queryKey: ["open-campaigns"],
-    queryFn: async () => {
-      const rpc = supabase as unknown as {
-        rpc: (
-          fn: string,
-          args?: Record<string, unknown>,
-        ) => Promise<{ data: unknown; error: { message: string } | null }>;
-      };
-      const { data, error } = await rpc.rpc("list_open_campaigns");
-      if (error) throw error;
-      return (data ?? []) as OpenCampaign[];
-    },
+    queryFn: fetchOpenCampaigns,
+    initialData: initial.openCampaigns,
+    staleTime: 60_000,
   });
 
   const openCampaignsById = new Map(openCampaigns.map((campaign) => [campaign.id, campaign]));
@@ -180,6 +211,10 @@ function Index() {
             <img
               src={heroPhoto}
               alt="Wavez Club students working on electronics and robotics projects"
+              width={960}
+              height={1280}
+              fetchPriority="high"
+              decoding="async"
               className="relative aspect-[16/10] w-full rounded-tl-[6rem] rounded-br-[6rem] bg-card object-cover object-center shadow-[0_40px_90px_-40px_rgba(37,99,235,0.6)] ring-1 ring-brand/10 md:aspect-[4/5]"
             />
           </div>

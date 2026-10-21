@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { Menu, X } from "lucide-react";
 
-import logo from "@/assets/wavez-logo.png";
+import logo from "@/assets/wavez-logo.webp";
 
 const NAV_ITEMS: ReadonlyArray<{ to: "/" | "/about"; hash?: string; label: string }> = [
   { to: "/about", label: "About" },

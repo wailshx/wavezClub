@@ -1,24 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  BarChart,
-  Bar,
-  ResponsiveContainer,
-  Tooltip,
-  Legend,
-  CartesianGrid,
-} from "recharts";
-import { useReducedMotion } from "framer-motion";
+import { lazy, Suspense, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useReducedMotion } from "@/lib/use-reduced-motion";
 import { toast } from "sonner";
-import * as XLSX from "xlsx";
 import {
   type LucideIcon,
   ArrowDown,
@@ -81,7 +65,7 @@ import {
   TooltipProvider as ShadTooltipProvider,
   TooltipTrigger as ShadTooltipTrigger,
 } from "@/components/ui/tooltip";
-import logo from "@/assets/wavez-logo.png";
+import logo from "@/assets/wavez-logo.webp";
 import {
   CLUB_ROLE_LABELS,
   DEPARTMENTS,
@@ -257,10 +241,6 @@ const ROLE_LABELS: Record<string, string> = {
   vice_hr_leader: "Vice HR Leader",
 };
 
-const CHART_COLORS = ["#2e6bff", "#38bdf8", "#818cf8", "#a78bfa", "#f59e0b"];
-const axisTick = { fill: "#94a3c8", fontSize: 10 };
-const gridStroke = "rgba(255, 255, 255, 0.08)";
-
 function leadershipRank(role: string | null) {
   const idx = LEADERSHIP_ORDER.indexOf(role ?? "");
   return idx === -1 ? LEADERSHIP_ORDER.length : idx;
@@ -322,6 +302,31 @@ function avatarFallback(name: string | null, email: string | null) {
     .join("")
     .toUpperCase();
 }
+
+const MembersGrowthChart = lazy(() =>
+  import("@/components/admin-dashboard-charts").then((module) => ({
+    default: module.MembersGrowthChart,
+  })),
+);
+const MembersLevelDonut = lazy(() =>
+  import("@/components/admin-dashboard-charts").then((module) => ({
+    default: module.MembersLevelDonut,
+  })),
+);
+const MembersDepartmentBar = lazy(() =>
+  import("@/components/admin-dashboard-charts").then((module) => ({
+    default: module.MembersDepartmentBar,
+  })),
+);
+const SubmissionsGrowthChart = lazy(() =>
+  import("@/components/admin-dashboard-charts").then((module) => ({
+    default: module.SubmissionsGrowthChart,
+  })),
+);
+
+const chartFallback = (
+  <div className="h-full w-full animate-pulse rounded-2xl bg-white/[0.04]" aria-hidden="true" />
+);
 
 const navItems = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -542,47 +547,6 @@ function KpiCard({
     );
   }
   return <div className={`${card} cursor-default`}>{body}</div>;
-}
-
-// Glass tooltip used by every dashboard chart (replaces recharts' white box).
-function GlassChartTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: Array<{
-    dataKey?: string | number;
-    name?: string | number;
-    value?: number | string;
-    color?: string;
-    payload?: { fill?: string };
-  }>;
-  label?: string | number;
-}) {
-  if (!active || !payload || payload.length === 0) return null;
-  return (
-    <div className="min-w-[9rem] rounded-xl border border-white/15 bg-[#0a1226]/95 px-3.5 py-2.5 shadow-[0_18px_40px_-16px_rgba(6,11,24,0.9)] backdrop-blur-md">
-      {label != null && label !== "" && (
-        <p className="mb-1.5 text-xs font-extrabold text-white">{label}</p>
-      )}
-      <div className="space-y-1">
-        {payload.map((entry) => (
-          <div
-            key={String(entry.dataKey ?? entry.name ?? "")}
-            className="flex items-center gap-2 text-xs"
-          >
-            <span
-              className="size-2 shrink-0 rounded-full"
-              style={{ backgroundColor: entry.color ?? entry.payload?.fill ?? "#2e6bff" }}
-            />
-            <span className="font-semibold text-[#94a3c8]">{entry.name}</span>
-            <span className="ml-auto pl-4 font-bold text-white">{entry.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 // Stepped funnel: Submitted → Checked in → Accepted, with flow connectors.
@@ -1554,11 +1518,14 @@ function AdminPage() {
     navigate({ to: "/gestion", replace: true });
   }
 
-  function exportToExcel(rows: Member[]) {
+  async function exportToExcel(rows: Member[]) {
     if (rows.length === 0) {
       toast.error("No members to export");
       return;
     }
+    // Loaded on click: the spreadsheet writer is ~470 KB, and the console should
+    // not pay for it on entry (or on every dashboard visit) just to export.
+    const XLSX = await import("xlsx");
     const aoa = [
       ["Name", "Club Role", "Level", "Department", "Speciality", "Status", "Blocked Until"],
       ...rows.map((m) => [
@@ -1984,60 +1951,12 @@ function AdminPage() {
                                 </EmptyHint>
                               ) : (
                                 <div className="h-56">
-                                  <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={stats.members.by_month}>
-                                      <defs>
-                                        <linearGradient
-                                          id="memberGrowthFill"
-                                          x1="0"
-                                          y1="0"
-                                          x2="0"
-                                          y2="1"
-                                        >
-                                          <stop
-                                            offset="0%"
-                                            stopColor="#2e6bff"
-                                            stopOpacity={0.45}
-                                          />
-                                          <stop
-                                            offset="100%"
-                                            stopColor="#2e6bff"
-                                            stopOpacity={0.03}
-                                          />
-                                        </linearGradient>
-                                      </defs>
-                                      <XAxis
-                                        dataKey="month"
-                                        tick={axisTick}
-                                        stroke={gridStroke}
-                                        tickLine={false}
-                                        axisLine={false}
-                                      />
-                                      <YAxis
-                                        allowDecimals={false}
-                                        width={28}
-                                        tick={axisTick}
-                                        stroke={gridStroke}
-                                        tickLine={false}
-                                        axisLine={false}
-                                      />
-                                      <CartesianGrid stroke={gridStroke} vertical={false} />
-                                      <Tooltip content={<GlassChartTooltip />} />
-                                      <Area
-                                        type="monotone"
-                                        dataKey="cumulative"
-                                        name="Members"
-                                        stroke="#2e6bff"
-                                        strokeWidth={2}
-                                        fill="url(#memberGrowthFill)"
-                                        dot={{ r: 3, fill: "#2e6bff" }}
-                                        activeDot={{ r: 5 }}
-                                        isAnimationActive={!reduced}
-                                        animationDuration={800}
-                                        animationEasing="ease-out"
-                                      />
-                                    </AreaChart>
-                                  </ResponsiveContainer>
+                                  <Suspense fallback={chartFallback}>
+                                    <MembersGrowthChart
+                                      data={stats.members.by_month}
+                                      reduced={reduced}
+                                    />
+                                  </Suspense>
                                 </div>
                               )}
                               <p className="mx-2 mt-1 text-[11px] font-semibold text-[#94a3c8]">
@@ -2060,41 +1979,12 @@ function AdminPage() {
                                 <EmptyHint>No data yet.</EmptyHint>
                               ) : (
                                 <div className="relative h-full">
-                                  <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart>
-                                      <Pie
-                                        data={stats.members.by_level}
-                                        dataKey="value"
-                                        nameKey="level"
-                                        innerRadius={46}
-                                        outerRadius={72}
-                                        paddingAngle={3}
-                                        cornerRadius={5}
-                                        isAnimationActive={!reduced}
-                                        animationDuration={700}
-                                        animationEasing="ease-out"
-                                        animationBegin={120}
-                                      >
-                                        {stats.members.by_level.map((entry, i) => (
-                                          <Cell
-                                            key={entry.level}
-                                            fill={
-                                              CHART_COLORS[i % CHART_COLORS.length] ?? "#2e6bff"
-                                            }
-                                          />
-                                        ))}
-                                      </Pie>
-                                      <Tooltip content={<GlassChartTooltip />} />
-                                      <Legend
-                                        wrapperStyle={{
-                                          color: "#c7d2fe",
-                                          fontSize: 12,
-                                          fontWeight: 600,
-                                        }}
-                                        iconSize={8}
-                                      />
-                                    </PieChart>
-                                  </ResponsiveContainer>
+                                  <Suspense fallback={chartFallback}>
+                                    <MembersLevelDonut
+                                      data={stats.members.by_level}
+                                      reduced={reduced}
+                                    />
+                                  </Suspense>
                                   <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                                     <p className="font-display text-2xl font-bold text-white">
                                       {stats.members.by_level.reduce(
@@ -2124,49 +2014,12 @@ function AdminPage() {
                               {stats.members.by_department.length === 0 ? (
                                 <EmptyHint>No data yet.</EmptyHint>
                               ) : (
-                                <ResponsiveContainer width="100%" height="100%">
-                                  <BarChart data={stats.members.by_department}>
-                                    <defs>
-                                      <linearGradient id="deptBarFill" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor="#2e6bff" />
-                                        <stop
-                                          offset="100%"
-                                          stopColor="#2e6bff"
-                                          stopOpacity={0.45}
-                                        />
-                                      </linearGradient>
-                                    </defs>
-                                    <XAxis
-                                      dataKey="department"
-                                      tick={axisTick}
-                                      interval={0}
-                                      stroke={gridStroke}
-                                      tickLine={false}
-                                      axisLine={false}
-                                    />
-                                    <YAxis
-                                      allowDecimals={false}
-                                      width={28}
-                                      tick={axisTick}
-                                      stroke={gridStroke}
-                                      tickLine={false}
-                                      axisLine={false}
-                                    />
-                                    <Tooltip
-                                      content={<GlassChartTooltip />}
-                                      cursor={{ fill: "rgba(46,107,255,0.15)" }}
-                                    />
-                                    <Bar
-                                      dataKey="value"
-                                      fill="url(#deptBarFill)"
-                                      radius={[6, 6, 0, 0]}
-                                      maxBarSize={36}
-                                      isAnimationActive={!reduced}
-                                      animationDuration={700}
-                                      animationEasing="ease-out"
-                                    />
-                                  </BarChart>
-                                </ResponsiveContainer>
+                                <Suspense fallback={chartFallback}>
+                                  <MembersDepartmentBar
+                                    data={stats.members.by_department}
+                                    reduced={reduced}
+                                  />
+                                </Suspense>
                               )}
                             </div>
                           </section>
@@ -2275,56 +2128,12 @@ function AdminPage() {
                             ) : (
                               <div className="mt-4">
                                 <div className="h-52">
-                                  <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={stats.events.by_month}>
-                                      <defs>
-                                        <linearGradient
-                                          id="eventFreqFill"
-                                          x1="0"
-                                          y1="0"
-                                          x2="0"
-                                          y2="1"
-                                        >
-                                          <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.4} />
-                                          <stop
-                                            offset="100%"
-                                            stopColor="#38bdf8"
-                                            stopOpacity={0.03}
-                                          />
-                                        </linearGradient>
-                                      </defs>
-                                      <XAxis
-                                        dataKey="month"
-                                        tick={axisTick}
-                                        stroke={gridStroke}
-                                        tickLine={false}
-                                        axisLine={false}
-                                      />
-                                      <YAxis
-                                        allowDecimals={false}
-                                        width={28}
-                                        tick={axisTick}
-                                        stroke={gridStroke}
-                                        tickLine={false}
-                                        axisLine={false}
-                                      />
-                                      <CartesianGrid stroke={gridStroke} vertical={false} />
-                                      <Tooltip content={<GlassChartTooltip />} />
-                                      <Area
-                                        type="monotone"
-                                        dataKey="count"
-                                        name="Submissions"
-                                        stroke="#38bdf8"
-                                        strokeWidth={2}
-                                        fill="url(#eventFreqFill)"
-                                        dot={{ r: 3, fill: "#38bdf8" }}
-                                        activeDot={{ r: 5 }}
-                                        isAnimationActive={!reduced}
-                                        animationDuration={800}
-                                        animationEasing="ease-out"
-                                      />
-                                    </AreaChart>
-                                  </ResponsiveContainer>
+                                  <Suspense fallback={chartFallback}>
+                                    <SubmissionsGrowthChart
+                                      data={stats.events.by_month}
+                                      reduced={reduced}
+                                    />
+                                  </Suspense>
                                 </div>
                                 <p className="mx-2 mt-1 text-[11px] font-semibold text-[#94a3c8]">
                                   Submission announcements by month — last 6 months
